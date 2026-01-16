@@ -1,0 +1,256 @@
+// apps/api/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------
+
+enum Role {
+  MEMBER           // Level 4: Read Only (Self)
+  FINANCE_OFFICER  // Level 0: Verifier
+  TREASURER        // Level 1: Executor
+  SECRETARY        // Level 2: Admin
+  CHAIRPERSON      // Level 3: Approver
+  SUPER_ADMIN      // System Maintenance
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DEFAULTED        // Triggered by Day 91 Rule
+}
+
+enum LoanStatus {
+  PENDING_GUARANTORS      // Step 0: Waiting for guarantors
+  PENDING_VERIFICATION    // Step 1: Finance Officer
+  PENDING_APPROVAL        // Step 2: Chairperson
+  APPROVED                // Step 3: Ready for Disbursement
+  ACTIVE                  // Money Out
+  COMPLETED               // Fully Paid
+  DEFAULTED
+  REJECTED
+}
+
+enum GuaranteeStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  RELEASED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  LOAN_DISBURSEMENT
+  LOAN_REPAYMENT
+  LOAN_INTEREST
+  LOAN_PENALTY
+  WELFARE_DEDUCTION
+  SUBSCRIPTION
+  PENALTY
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum PaymentProvider {
+  MPESA
+  BANK
+  CASH
+  SYSTEM
+}
+
+// ---------------------------------------------------------
+// MODEL: USER
+// ---------------------------------------------------------
+
+model User {
+  id              String        @id @default(uuid())
+  email           String        @unique
+  phoneNumber     String        @unique
+  passwordHash    String
+  role            Role          @default(MEMBER)
+  status          AccountStatus @default(PENDING)
+  
+  // Relations
+  profile         MemberProfile?
+  wallet          Wallet?
+  loans           Loan[]        
+  guarantees      Guarantor[]   
+  auditLogs       AuditLog[]
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------
+// MODEL: MEMBER PROFILE
+// ---------------------------------------------------------
+
+model MemberProfile {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id])
+
+  firstName       String
+  lastName        String
+  nationalId      String    @unique
+  kraPin          String?   @unique
+  
+  dateOfBirth     DateTime
+  gender          String
+  
+  nextOfKin       NextOfKin?
+  beneficiaries   Beneficiary[]
+
+  @@map("member_profiles")
+}
+
+model NextOfKin {
+  id              String        @id @default(uuid())
+  profileId       String        @unique
+  profile         MemberProfile @relation(fields: [profileId], references: [id])
+  
+  fullName        String
+  relationship    String
+  phoneNumber     String
+}
+
+model Beneficiary {
+  id              String        @id @default(uuid())
+  profileId       String
+  profile         MemberProfile @relation(fields: [profileId], references: [id])
+  
+  fullName        String
+  relationship    String
+  allocation      Float         
+  
+  @@map("beneficiaries")
+}
+
+// ---------------------------------------------------------
+// MODEL: FINANCIAL CORE (WALLET & TRANSACTIONS)
+// ---------------------------------------------------------
+
+model Wallet {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+
+  // ASSETS
+  savingsBalance  Decimal  @default(0) @db.Decimal(15, 2)
+  lockedSavings   Decimal  @default(0) @db.Decimal(15, 2) // SHADOW BALANCE
+  welfareBalance  Decimal  @default(0) @db.Decimal(15, 2)
+  
+  // LIABILITIES
+  loanBalance     Decimal  @default(0) @db.Decimal(15, 2)
+  accruedInterest Decimal  @default(0) @db.Decimal(15, 2)
+  finesBalance    Decimal  @default(0) @db.Decimal(15, 2)
+
+  transactions    Transaction[]
+  
+  updatedAt       DateTime @updatedAt
+}
+
+model Transaction {
+  id              String            @id @default(uuid())
+  walletId        String
+  wallet          Wallet            @relation(fields: [walletId], references: [id])
+  
+  amount          Decimal           @db.Decimal(15, 2)
+  type            TransactionType
+  status          TransactionStatus @default(PENDING)
+  provider        PaymentProvider   @default(SYSTEM)
+  
+  referenceCode   String   @unique
+  description     String?
+  metadata        Json?    
+  
+  createdAt       DateTime @default(now())
+
+  @@map("transactions")
+}
+
+// ---------------------------------------------------------
+// MODEL: LENDING ENGINE
+// ---------------------------------------------------------
+
+model Loan {
+  id              String      @id @default(uuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  
+  // Amounts
+  principal       Decimal     @db.Decimal(15, 2)
+  interest        Decimal     @db.Decimal(15, 2)
+  totalDue        Decimal     @db.Decimal(15, 2)
+  balance         Decimal     @db.Decimal(15, 2)
+  
+  // Terms
+  rate            Decimal     @default(0.05)
+  duration        Int         @default(30)
+  
+  // Status
+  status          LoanStatus  @default(PENDING_VERIFICATION)
+  
+  // Timestamps
+  appliedAt       DateTime    @default(now())
+  disbursedAt     DateTime?   
+  dueDate         DateTime?   
+  
+  guarantors      Guarantor[]
+
+  @@map("loans")
+}
+
+model Guarantor {
+  id              String          @id @default(uuid())
+  loanId          String
+  loan            Loan            @relation(fields: [loanId], references: [id])
+  
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  
+  amountLocked    Decimal         @db.Decimal(15, 2)
+  status          GuaranteeStatus @default(PENDING)
+  
+  createdAt       DateTime        @default(now())
+  
+  @@map("guarantors")
+}
+
+// ---------------------------------------------------------
+// MODEL: AUDIT LOG
+// ---------------------------------------------------------
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  action      String   
+  details     String?  // <--- FIXED: Added this field (String type to match JSON.stringify)
+  resourceId  String?  
+  ipAddress   String?
+  userAgent   String?
+  
+  timestamp   DateTime @default(now())
+
+  @@map("audit_logs")
+}

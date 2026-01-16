@@ -1,0 +1,12 @@
+-- CreateEnum
+CREATE TYPE "GuaranteeStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REJECTED', 'RELEASED');
+
+-- AlterEnum
+ALTER TYPE "LoanStatus" ADD VALUE 'PENDING_GUARANTORS';
+
+-- AlterTable
+ALTER TABLE "Wallet" ADD COLUMN     "lockedSavings" DECIMAL(15,2) NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "guarantors" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "status" "GuaranteeStatus" NOT NULL DEFAULT 'PENDING';

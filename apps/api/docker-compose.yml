@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # 1. THE DATABASE SERVICE (Local Docker Postgres)
+  sww-db:
+    image: postgres:15-alpine
+    container_name: sww-db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: sww_platform
+    ports:
+      - "5433:5432" # <--- CHANGED: Uses port 5433 to avoid conflict
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. THE API SERVICE
+  sww-api:
+    build: .
+    container_name: sww-api
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - sww-db
+    environment:
+      # <--- CHANGED: Points to local 'sww-db' container
+      DATABASE_URL: "postgresql://admin:password123@sww-db:5432/sww_platform?schema=public"
+      JWT_SECRET: "YourSuperSecretDockerKey"
+      PORT: 3000
+
+volumes:
+  postgres_data:
