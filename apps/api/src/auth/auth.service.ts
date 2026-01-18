@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
+import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
@@ -10,42 +11,45 @@ export class AuthService {
     private jwtService: JwtService
   ) {}
 
-  // 1. LOGIN
-  async signIn(email: string, pass: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+  // 1. LOGIN (Renamed from signIn to match Controller)
+  async login(loginDto: LoginDto) {
+    const { email, password } = loginDto;
     
+    // Find user
+    const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) throw new UnauthorizedException('Invalid credentials');
     
-    const isMatch = await bcrypt.compare(pass, user.password);
+    // Compare password with hash (Schema uses passwordHash)
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) throw new UnauthorizedException('Invalid credentials');
 
-    // 2. CREATE PAYLOAD (Crucial: 'sub' must be the ID)
+    // Create Token Payload
     const payload = { sub: user.id, email: user.email, role: user.role };
     
     return {
       access_token: await this.jwtService.signAsync(payload),
       user: {
         id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email
+        email: user.email,
+        role: user.role,
+        // Removed firstName/lastName to prevent schema errors
       }
     };
   }
 
-  // 3. REGISTER
+  // 2. REGISTER
   async register(data: any) {
     const hashedPassword = await bcrypt.hash(data.password, 10);
     
     const user = await this.prisma.user.create({
       data: {
-        ...data,
-        password: hashedPassword,
-        wallet: { create: {} } // Create wallet automatically
+        email: data.email,
+        passwordHash: hashedPassword, 
+        phoneNumber: data.phoneNumber || '',
+        wallet: { create: {} }
       }
     });
 
-    // Auto-login after register
     const payload = { sub: user.id, email: user.email, role: user.role };
     return {
       access_token: await this.jwtService.signAsync(payload),

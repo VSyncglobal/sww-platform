@@ -1,10 +1,13 @@
 import { Controller, Post, Body, UseGuards, Request, Get } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '@nestjs/passport'; 
+import { Roles } from '../auth/roles.decorator'; // <--- ADDED
+import { RolesGuard } from '../auth/roles.guard'; // <--- ADDED
+import { Role } from '@prisma/client'; // <--- ADDED
 
-// Use the standard Passport JWT Guard
+// Use the standard Passport JWT Guard AND RolesGuard
 @Controller('transactions')
-@UseGuards(AuthGuard('jwt')) 
+@UseGuards(AuthGuard('jwt'), RolesGuard) // <--- UPDATED to include RolesGuard
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 
@@ -22,5 +25,12 @@ export class TransactionsController {
   @Get()
   findAll(@Request() req: any) {
     return this.transactionsService.findAll(req.user.userId);
+  }
+
+  // 3. ADMIN: GET ALL TRANSACTIONS (LOGS)
+  @Get('admin/all')
+  @Roles(Role.CHAIRPERSON, Role.TREASURER, Role.SUPER_ADMIN, Role.FINANCE_OFFICER)
+  findAllAdmin() {
+    return this.transactionsService.findAllAdmin();
   }
 }

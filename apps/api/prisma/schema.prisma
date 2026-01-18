@@ -74,24 +74,33 @@ enum PaymentProvider {
   SYSTEM
 }
 
+enum WorkflowStatus {
+  PENDING_VERIFICATION          // Step 1: Finance Officer
+  PENDING_APPROVAL              // Step 2: Chairperson
+  APPROVED_PENDING_DISBURSEMENT // Step 3: Treasurer
+  COMPLETED                     // Money Disbursed
+  REJECTED
+}
+
 // ---------------------------------------------------------
 // MODEL: USER
 // ---------------------------------------------------------
 
 model User {
-  id              String        @id @default(uuid())
-  email           String        @unique
-  phoneNumber     String        @unique
-  passwordHash    String
-  role            Role          @default(MEMBER)
-  status          AccountStatus @default(PENDING)
+  id            String        @id @default(uuid())
+  email         String        @unique
+  phoneNumber   String        @unique
+  passwordHash  String
+  role          Role          @default(MEMBER)
+  status        AccountStatus @default(PENDING)
   
   // Relations
-  profile         MemberProfile?
-  wallet          Wallet?
-  loans           Loan[]        
-  guarantees      Guarantor[]   
-  auditLogs       AuditLog[]
+  profile            MemberProfile?
+  wallet             Wallet?
+  loans              Loan[]        
+  guarantees         Guarantor[]   
+  auditLogs          AuditLog[]
+  withdrawalRequests WithdrawalRequest[] // <--- ADDED THIS LINE (The Fix)
   
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -245,7 +254,7 @@ model AuditLog {
   user        User     @relation(fields: [userId], references: [id])
   
   action      String   
-  details     String?  // <--- FIXED: Added this field (String type to match JSON.stringify)
+  details     String?  
   resourceId  String?  
   ipAddress   String?
   userAgent   String?
@@ -253,4 +262,33 @@ model AuditLog {
   timestamp   DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------
+// MODEL: GOVERNANCE (WITHDRAWALS)
+// ---------------------------------------------------------
+
+model WithdrawalRequest {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  amount    Decimal  @db.Decimal(15, 2)
+  reason    String?
+  destination String // "M-Pesa: 2547..." or "Bank: Account..."
+  
+  status    WorkflowStatus @default(PENDING_VERIFICATION)
+  
+  // The Maker-Checker Audit Trail
+  verifiedBy  String?  // Finance Officer ID
+  approvedBy  String?  // Chairperson ID
+  disbursedBy String?  // Treasurer ID
+  rejectionReason String?
+  
+  transactionId String? @unique // Links to the actual Ledger entry when completed
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("withdrawal_requests")
 }

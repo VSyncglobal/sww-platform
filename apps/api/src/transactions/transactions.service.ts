@@ -104,4 +104,19 @@ export class TransactionsService {
       orderBy: { createdAt: 'desc' },
     });
   }
+  async findAllAdmin() {
+    return this.prisma.transaction.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 100, // Limit to last 100 for performance
+      include: {
+        wallet: {
+          select: {
+            user: {
+              select: { email: true }
+            }
+          }
+        }
+      }
+    });
+  }
 }

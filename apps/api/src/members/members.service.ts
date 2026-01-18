@@ -3,11 +3,13 @@ import { Injectable, ConflictException } from '@nestjs/common';
 import { PrismaClient, Role, AccountStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { PrismaService } from '../prisma/prisma.service';
 
 const prisma = new PrismaClient();
 
 @Injectable()
 export class MembersService {
+  constructor(private prisma: PrismaService) {}
   
   async create(createMemberDto: CreateMemberDto) {
     // 1. Check for Duplicates
@@ -69,4 +71,24 @@ export class MembersService {
       orderBy: { createdAt: 'desc' }
     });
   }
+  async findAllAdmin() {
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        status: true,
+        createdAt: true,
+        profile: {
+          select: { firstName: true, lastName: true, nationalId: true }
+        },
+        wallet: {
+          select: { savingsBalance: true, loanBalance: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
 }

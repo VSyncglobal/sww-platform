@@ -1,0 +1,17 @@
+{
+  "governance_mode": "MANUAL",
+  "system_version": "1.0.0",
+  "features": {
+    "auto_loan_approval": false,
+    "auto_disbursement_b2c": false,
+    "strict_guarantor_check": true,
+    "welfare_automation": false
+  },
+  "limits": {
+    "min_savings_for_loan": 10000,
+    "max_loan_multiplier": 0.80,
+    "interest_rate_standard": 0.05,
+    "interest_rate_penalty": 0.10,
+    "max_repayment_months": 30
+  }
+}

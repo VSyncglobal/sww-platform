@@ -1,24 +1,26 @@
 import { Module } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { AuthController } from './auth.controller';
-import { PassportModule } from '@nestjs/passport';
-import { JwtModule } from '@nestjs/jwt';
-import { JwtStrategy } from './jwt.strategy';
-import { jwtConstants } from './constants'; // <--- Import logic
-import { PrismaModule } from '../prisma/prisma.module'; // Ensure Prisma is available
+import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule'; // <--- Import
+import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './auth/auth.module';
+import { TransactionsModule } from './transactions/transactions.module';
+import { MembersModule } from './members/members.module';
+import { LoansModule } from './loans/loans.module';
+import { GovernanceModule } from './governance/governance.module';
+import appConfig from './config/app.config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+    ScheduleModule.forRoot(), // <--- Initialize Scheduler
     PrismaModule,
-    PassportModule,
-    JwtModule.register({
-      global: true,
-      secret: jwtConstants.secret, // <--- USE CONSTANT
-      signOptions: { expiresIn: jwtConstants.expiresIn },
-    }),
+    AuthModule,
+    TransactionsModule, 
+    MembersModule,      
+    LoansModule,        
+    GovernanceModule,
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  controllers: [],
+  providers: [],
 })
-export class AuthModule {}
+export class AppModule {}

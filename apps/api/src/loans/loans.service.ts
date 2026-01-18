@@ -1,18 +1,19 @@
-// apps/api/src/loans/loans.service.ts
-import { Injectable, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { PrismaClient, LoanStatus } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { Injectable, BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { LoanStatus, TransactionType, TransactionStatus, PaymentProvider } from '@prisma/client';
 
 @Injectable()
 export class LoansService {
+  private readonly logger = new Logger(LoansService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
 
   // --- 1. APPLICATION LOGIC (Member) ---
   async apply(userId: string, amount: number) {
     const amountDec = Number(amount);
 
     // Fetch Context
-    const user = await prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { wallet: true, loans: true }
     });
@@ -21,7 +22,7 @@ export class LoansService {
 
     // Gatekeeper: Active Loan Check
     const activeLoan = user.loans.find(l => 
-      ['PENDING_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE'].includes(l.status)
+      ['PENDING_GUARANTORS', 'PENDING_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE'].includes(l.status)
     );
     if (activeLoan) throw new ConflictException('You already have an active or pending loan.');
 
@@ -49,113 +50,97 @@ export class LoansService {
     const totalDue = amountDec + interest;
 
     // Create Application
-    return await prisma.loan.create({
+    return await this.prisma.loan.create({
       data: {
         userId: user.id,
         principal: amountDec,
         interest: interest,
         totalDue: totalDue,
         balance: totalDue,
-        status: LoanStatus.PENDING_VERIFICATION, // Step 1
+        status: LoanStatus.PENDING_GUARANTORS,
       }
     });
   }
 
   // --- 2. VERIFICATION LOGIC (Finance Officer) ---
   async verify(loanId: string) {
-    const loan = await prisma.loan.findUnique({ where: { id: loanId } });
-    
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
     if (!loan) throw new NotFoundException('Loan not found');
     
-    // Strict State Machine Check
     if (loan.status !== 'PENDING_VERIFICATION') {
-      throw new BadRequestException(`Invalid transition. Current status: ${loan.status}`);
+      throw new BadRequestException(`Invalid transition. Loan is at ${loan.status}`);
     }
 
-    return await prisma.loan.update({
+    return await this.prisma.loan.update({
       where: { id: loanId },
-      data: { status: 'PENDING_APPROVAL' } // Move to Step 2
+      data: { status: LoanStatus.PENDING_APPROVAL }
     });
   }
 
   // --- 3. APPROVAL LOGIC (Chairperson) ---
   async approve(loanId: string) {
-    const loan = await prisma.loan.findUnique({ where: { id: loanId } });
-
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
     if (!loan) throw new NotFoundException('Loan not found');
 
-    // Strict State Machine Check
     if (loan.status !== 'PENDING_APPROVAL') {
-      throw new BadRequestException(`Invalid transition. Current status: ${loan.status}`);
+      throw new BadRequestException(`Invalid transition. Loan is at ${loan.status}`);
     }
 
-    return await prisma.loan.update({
+    return await this.prisma.loan.update({
       where: { id: loanId },
-      data: { status: 'APPROVED' } // Move to Step 3 (Ready for Disbursement)
+      data: { status: LoanStatus.APPROVED }
     });
   }
 
   // --- 4. REJECTION LOGIC ---
   async reject(loanId: string, reason: string) {
-    return await prisma.loan.update({
+    return await this.prisma.loan.update({
       where: { id: loanId },
-      data: { status: 'REJECTED' }
+      data: { status: LoanStatus.REJECTED }
     });
   }
 
-// --- 5. DISBURSEMENT LOGIC (Treasurer) ---
+  // --- 5. DISBURSEMENT LOGIC (Treasurer) ---
   async disburse(loanId: string) {
-    const loan = await prisma.loan.findUnique({ where: { id: loanId } });
-
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
     if (!loan) throw new NotFoundException('Loan not found');
 
     if (loan.status !== 'APPROVED') {
       throw new BadRequestException('Loan is not approved for disbursement');
     }
 
-    // Calculate Dates
     const now = new Date();
     const dueDate = new Date();
     dueDate.setDate(now.getDate() + 30); // Strict 30 Day Policy
 
-    // ATOMIC TRANSACTION
-    return await prisma.$transaction(async (tx) => {
-      
-      // 1. Fetch Wallet (Safe Check)
-      const wallet = await tx.wallet.findUnique({ 
-        where: { userId: loan.userId } 
-      });
+    return await this.prisma.$transaction(async (tx) => {
+      const wallet = await tx.wallet.findUnique({ where: { userId: loan.userId } });
+      if (!wallet) throw new NotFoundException('User wallet not found.');
 
-      if (!wallet) {
-        throw new NotFoundException('User wallet not found. Cannot disburse.');
-      }
-
-      // 2. Activate the Loan
+      // Update Loan
       const activeLoan = await tx.loan.update({
         where: { id: loanId },
-        data: {
-          status: 'ACTIVE',
+        data: { 
+          status: LoanStatus.ACTIVE, 
           disbursedAt: now,
-          dueDate: dueDate,
+          dueDate: dueDate
         }
       });
 
-      // 3. Update User's Financial Liability
+      // Update Wallet Liability
       await tx.wallet.update({
-        where: { id: wallet.id }, // Use the wallet.id we just found
-        data: {
-          loanBalance: { increment: loan.totalDue }
-        }
+        where: { id: wallet.id },
+        data: { loanBalance: { increment: loan.totalDue } }
       });
 
-      // 4. Log the "Money Out" Event
+      // Create Transaction
       await tx.transaction.create({
         data: {
-          walletId: wallet.id, // Safe to use now
+          walletId: wallet.id,
           amount: loan.principal,
-          type: 'LOAN_DISBURSEMENT',
-          status: 'COMPLETED',
-          provider: 'MPESA',
+          type: TransactionType.LOAN_DISBURSEMENT,
+          status: TransactionStatus.COMPLETED,
+          provider: PaymentProvider.MPESA,
           referenceCode: `LOAN-${loan.id.substring(0, 8).toUpperCase()}`,
           description: `Disbursement of Loan #${loan.id}`
         }
@@ -163,87 +148,202 @@ export class LoansService {
 
       return activeLoan;
     });
-    }
+  }
 
   // --- 6. REPAYMENT LOGIC ---
   async repay(loanId: string, amount: number) {
     const payment = Number(amount);
-
-    // 1. Fetch Loan & Wallet
-    const loan = await prisma.loan.findUnique({
+    const loan = await this.prisma.loan.findUnique({
       where: { id: loanId },
-      include: { user: { include: { wallet: true } } } // Deep fetch
+      include: { user: { include: { wallet: true } }, guarantors: true }
     });
 
     if (!loan) throw new NotFoundException('Loan not found');
-    if (loan.status !== 'ACTIVE' && loan.status !== 'DEFAULTED') {
-      throw new BadRequestException('Loan is not active');
-    }
+    if (loan.status !== 'ACTIVE' && loan.status !== 'DEFAULTED') throw new BadRequestException('Loan not active');
 
     const wallet = loan.user.wallet;
     if (!wallet) throw new NotFoundException('Wallet not found');
-
-    // 2. Calculate Allocations
+    
+    // Logic: Split Payment
     let remainingPayment = payment;
-    let loanDedcution = 0;
+    let loanDeduction = 0;
     let savingsAddition = 0;
-
     const currentBalance = Number(loan.balance);
 
     if (remainingPayment >= currentBalance) {
-      // FULL CLEARANCE (and maybe more)
-      loanDedcution = currentBalance;
-      savingsAddition = remainingPayment - currentBalance; // Excess goes to savings
+      loanDeduction = currentBalance;
+      savingsAddition = remainingPayment - currentBalance;
     } else {
-      // PARTIAL PAYMENT
-      loanDedcution = remainingPayment;
+      loanDeduction = remainingPayment;
     }
 
-    // 3. EXECUTE TRANSACTION
-    return await prisma.$transaction(async (tx) => {
-      
-      // A. Update Loan Record
+    return await this.prisma.$transaction(async (tx) => {
+      // Update Loan
       const updatedLoan = await tx.loan.update({
         where: { id: loanId },
         data: {
-          balance: { decrement: loanDedcution },
-          status: (loanDedcution === currentBalance) ? 'COMPLETED' : loan.status
+          balance: { decrement: loanDeduction },
+          status: (loanDeduction === currentBalance) ? LoanStatus.COMPLETED : loan.status
         }
       });
 
-      // B. Update Wallet (Liability Down, Assets Up if excess)
+      // Update Wallet
       await tx.wallet.update({
         where: { id: wallet.id },
         data: {
-          loanBalance: { decrement: loanDedcution },
+          loanBalance: { decrement: loanDeduction },
           savingsBalance: { increment: savingsAddition }
         }
       });
+      
+      // If Fully Paid -> Release Guarantors
+      if (updatedLoan.status === LoanStatus.COMPLETED) {
+        for (const g of loan.guarantors) {
+          if (g.status === 'ACCEPTED') {
+             await tx.wallet.update({
+               where: { userId: g.userId },
+               data: { lockedSavings: { decrement: g.amountLocked } }
+             });
+             await tx.guarantor.update({
+               where: { id: g.id },
+               data: { status: 'RELEASED' }
+             });
+          }
+        }
+      }
 
-      // C. Log the Transaction
       await tx.transaction.create({
         data: {
           walletId: wallet.id,
           amount: payment,
-          type: 'LOAN_REPAYMENT',
-          status: 'COMPLETED',
-          referenceCode: `PAY-${Date.now()}`, // Simulated Ref
-          description: `Repayment for Loan #${loan.id}`,
-          metadata: {
-            breakdown: {
-              clearedDebt: loanDedcution,
-              addedToSavings: savingsAddition
-            }
-          }
+          type: TransactionType.LOAN_REPAYMENT,
+          status: TransactionStatus.COMPLETED,
+          referenceCode: `PAY-${Date.now()}`,
+          description: `Repayment for Loan #${loan.id}`
         }
       });
 
-      return {
-        message: savingsAddition > 0 ? 'Loan Cleared! Excess moved to savings.' : 'Payment Received',
-        loanStatus: updatedLoan.status,
-        remainingBalance: updatedLoan.balance,
-        savingsAdded: savingsAddition
-      };
+      return { updatedLoan, savingsAdded: savingsAddition };
+    });
+  }
+// 7. AUTOMATION: APPLY PENALTY (Day 31+)
+  async applyOverduePenalty(loanId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const loan = await tx.loan.findUnique({ where: { id: loanId } });
+      if (!loan) return;
+
+      // 10% of Current Balance
+      const penaltyAmount = Number(loan.balance) * 0.10; 
+      
+      // Update Loan
+      await tx.loan.update({
+        where: { id: loanId },
+        data: {
+          balance: { increment: penaltyAmount },
+          totalDue: { increment: penaltyAmount },
+        }
+      });
+
+      // <--- FIX: Safe Wallet Fetch
+      const wallet = await tx.wallet.findUnique({ where: { userId: loan.userId } });
+      
+      if (wallet) {
+        // Only create transaction if wallet exists
+        await tx.transaction.create({
+          data: {
+            walletId: wallet.id,
+            amount: penaltyAmount,
+            type: TransactionType.LOAN_PENALTY,
+            status: TransactionStatus.COMPLETED,
+            referenceCode: `PEN-${Date.now()}`,
+            description: `10% Penalty for Overdue Loan #${loan.id}`
+          }
+        });
+        this.logger.warn(`Applied penalty of ${penaltyAmount} to Loan ${loanId}`);
+      } else {
+        this.logger.error(`Could not apply penalty transaction for Loan ${loanId}: Wallet not found.`);
+      }
+    });
+  }
+
+  // --- 8. AUTOMATION: MARK DEFAULT (Day 91+) ---
+  async markLoanAsDefault(loanId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const loan = await tx.loan.findUnique({ where: { id: loanId } });
+      if (!loan) return;
+
+      await tx.loan.update({
+        where: { id: loanId },
+        data: { status: LoanStatus.DEFAULTED }
+      });
+
+      await tx.user.update({
+        where: { id: loan.userId },
+        data: { status: 'DEFAULTED' }
+      });
+
+      this.logger.error(`🚨 Loan ${loanId} marked as DEFAULTED. User ${loan.userId} blocked.`);
+    });
+  }
+
+  // --- 9. HELPER: FIND OVERDUE LOANS ---
+  async getOverdueLoans() {
+    const now = new Date();
+    return this.prisma.loan.findMany({
+      where: {
+        status: LoanStatus.ACTIVE,
+        dueDate: { lt: now }
+      }
+    });
+  }
+
+  // --- 10. GET ELIGIBILITY ---
+  async checkEligibility(userId: string) {
+     const user = await this.prisma.user.findUnique({
+       where: { id: userId },
+       include: { wallet: true, loans: true }
+     });
+     if(!user || !user.wallet) return { eligible: false, reason: 'Profile incomplete' };
+     
+     const savings = Number(user.wallet.savingsBalance);
+     const limit = savings * 0.80;
+     
+     return {
+       eligible: savings >= 10000,
+       limit,
+       savings
+     };
+  }
+
+  // --- 11. FIND ALL ---
+  async findAll(userId: string) {
+    return this.prisma.loan.findMany({ where: { userId }, include: { guarantors: true } });
+  }
+
+  // --- 12. FIND ONE ---
+  async findOne(id: string, userId: string) {
+      return this.prisma.loan.findFirst({ where: { id, userId }, include: { guarantors: true } });
+  }
+  // --- 8. ADMIN: GET ALL LOANS ---
+  async findAllAdmin() {
+    return this.prisma.loan.findMany({
+      orderBy: { appliedAt: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            phoneNumber: true,
+            profile: {
+              select: { firstName: true, lastName: true, nationalId: true }
+            },
+            wallet: {
+              select: { savingsBalance: true }
+            }
+          }
+        },
+        guarantors: true
+      }
     });
   }
 }

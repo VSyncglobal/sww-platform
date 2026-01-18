@@ -17,6 +17,11 @@ export class MembersController {
   create(@Body() createMemberDto: CreateMemberDto) {
     return this.membersService.create(createMemberDto);
   }
+  @Get('admin/all')
+  @Roles(Role.CHAIRPERSON, Role.SECRETARY, Role.TREASURER, Role.SUPER_ADMIN, Role.FINANCE_OFFICER)
+  findAllAdmin() {
+    return this.membersService.findAllAdmin();
+  }
 
   @Get()
   @Roles(Role.SUPER_ADMIN, Role.SECRETARY, Role.CHAIRPERSON)
