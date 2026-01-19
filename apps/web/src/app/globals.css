@@ -3,23 +3,69 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 15, 23, 42; /* Slate 900 */
-  --background-start-rgb: 241, 245, 249; /* Slate 100 */
-  --background-end-rgb: 226, 232, 240; /* Slate 200 */
+  --foreground-rgb: 15, 23, 42;
+  --background-start-rgb: 255, 251, 235; /* Warm Cream (sacco-cream) */
+  --background-end-rgb: 254, 243, 199;   /* Light Amber */
+}
+
+html {
+  font-size: 16px; /* Base size */
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 15px; /* Slightly smaller on mobile but still readable */
+  }
 }
 
 body {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(
       to bottom right,
-      transparent,
+      rgb(var(--background-start-rgb)),
       rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+    );
   min-height: 100vh;
 }
 
-/* Custom Scrollbar for a polished feel */
+/* Enhancements */
+.btn-primary {
+  @apply bg-gradient-to-r from-sacco-orange to-sacco-gold text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-orange-500/20 active:scale-95 transition-all;
+}
+
+.card-vibe {
+  @apply bg-white/90 backdrop-blur-md rounded-2xl shadow-xl border-t-4 border-sacco-gold p-6;
+}@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 15, 23, 42;
+  --background-start-rgb: 255, 251, 235; /* sacco-cream */
+  --background-end-rgb: 254, 243, 199;   /* light amber */
+}
+
+html {
+  font-size: 16px;
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 15px; /* Slight adjustment for small screens */
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom right,
+      rgb(var(--background-start-rgb)),
+      rgb(var(--background-end-rgb))
+    );
+  min-height: 100vh;
+}
+
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -34,16 +80,20 @@ body {
   background: #94a3b8;
 }
 
-/* Table Enhancements */
+/* Theme Utilities */
 .glass-header {
-  @apply bg-gradient-to-r from-[#1e3a8a] to-emerald-700 text-white shadow-md;
+  @apply bg-gradient-to-r from-sacco-blue to-emerald-800 text-white shadow-md;
 }
 
 .table-row-hover {
-  @apply hover:bg-blue-50/50 transition-colors duration-200 border-b border-slate-100;
+  @apply hover:bg-orange-50/50 transition-colors duration-200 border-b border-stone-200;
 }
 
-/* Card Lift */
 .card-vibe {
-  @apply bg-white rounded-2xl shadow-lg border border-slate-100/50 hover:shadow-xl transition-all duration-300;
+  @apply bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border-t-4 border-sacco-gold p-6;
+}
+
+/* Primary Button Style */
+.btn-primary {
+  @apply bg-gradient-to-r from-sacco-orange to-sacco-gold text-white font-bold shadow-lg shadow-orange-500/20 active:scale-95 transition-all hover:brightness-110;
 }

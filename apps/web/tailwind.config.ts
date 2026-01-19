@@ -10,11 +10,20 @@ const config: Config = {
     extend: {
       colors: {
         sacco: {
-          blue: '#1e3a8a',  // Rich Navy Blue (Primary)
-          gold: '#d97706',  // Deep Amber/Gold (Accent)
-          dark: '#0f172a',  // Nearly Black (Text)
+          blue: '#1e3a8a',    // Rich Navy (Primary)
+          gold: '#f59e0b',    // Bright Gold (Highlights)
+          orange: '#ea580c',  // Warm Orange (Action Buttons)
+          cream: '#fffbeb',   // Warm White (Backgrounds)
+          dark: '#0f172a',    // Slate 900 (Text)
         }
       },
+      fontSize: {
+        'base': '1.05rem',    // Boost default reading size
+        'lg': '1.15rem',
+      },
+      screens: {
+        'xs': '475px',        // Extra small mobile breakpoint
+      }
     },
   },
   plugins: [],

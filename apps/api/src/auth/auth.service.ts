@@ -1,7 +1,7 @@
 import { Injectable, ConflictException, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
-import * as bcrypt from 'bcryptjs'; // Ensure you are using bcryptjs or bcrypt consistently
+import * as bcrypt from 'bcryptjs';
 import { RegisterDto } from './dto/register.dto'; 
 import { LoginDto } from './dto/login.dto';
 
@@ -68,9 +68,11 @@ export class AuthService {
               create: {
                 firstName: dto.firstName,
                 lastName: dto.lastName,
-                nationalId: dto.nationalId,
-                dateOfBirth: new Date(dto.dateOfBirth),
-                gender: dto.gender,
+                // FIX: Pass optional fields directly (undefined is allowed by Prisma for optional fields)
+                nationalId: dto.nationalId, 
+                // FIX: Only convert date if it exists
+                dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+                gender: dto.gender, 
               },
             },
           },

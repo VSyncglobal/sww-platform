@@ -118,7 +118,6 @@ model User {
   withdrawalRequests  WithdrawalRequest[]
   welfareClaims       WelfareClaim[]     
 
-  // FIX: Added opposite relations for LoanNote and Document
   authoredNotes       LoanNote[]
   uploadedDocuments   Document[]
   
@@ -134,10 +133,13 @@ model MemberProfile {
   user            User      @relation(fields: [userId], references: [id])
   firstName       String
   lastName        String
-  nationalId      String    @unique
+  
+  // OPTIONAL FIELDS FOR QUICK REGISTRATION
+  nationalId      String?   @unique
   kraPin          String?   @unique
-  dateOfBirth     DateTime
-  gender          String
+  dateOfBirth     DateTime?
+  gender          String?
+  
   nextOfKin       NextOfKin?
   beneficiaries   Beneficiary[]
 
@@ -208,8 +210,8 @@ model Loan {
   status          LoanStatus  @default(PENDING_VERIFICATION)
   adminNotes      String?     @db.Text 
   appliedAt       DateTime    @default(now())
-  disbursedAt     DateTime?   
-  dueDate         DateTime?   
+  disbursedAt     DateTime?
+  dueDate         DateTime?
   guarantors      Guarantor[]
   notes           LoanNote[]     
   documents       Document[]
@@ -252,7 +254,7 @@ model Guarantor {
   loan            Loan            @relation(fields: [loanId], references: [id])
   
   guarantorEmail  String          
-  userId          String?         
+  userId          String?
   user            User?           @relation(fields: [userId], references: [id])
   
   amountLocked    Decimal         @db.Decimal(15, 2)

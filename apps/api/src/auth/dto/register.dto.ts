@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsDateString, IsIn } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
@@ -8,6 +8,8 @@ export class RegisterDto {
   @MinLength(6)
   password: string;
 
+  // These fields were causing the "should not exist" error
+  // because they were missing or not decorated
   @IsString()
   @IsNotEmpty()
   firstName: string;
@@ -18,18 +20,16 @@ export class RegisterDto {
 
   @IsString()
   @IsNotEmpty()
-  nationalId: string;
-
-  // Moved to User model in new schema
-  @IsString()
-  @IsNotEmpty()
   phoneNumber: string;
 
-  // New Required Fields for MemberProfile
-  @IsDateString()
-  dateOfBirth: string; // YYYY-MM-DD
-
+  // Optional fields
   @IsString()
-  @IsIn(['MALE', 'FEMALE', 'OTHER'])
-  gender: string;
+  @IsOptional()
+  nationalId?: string;
+
+  @IsOptional()
+  dateOfBirth?: string;
+
+  @IsOptional()
+  gender?: string;
 }
