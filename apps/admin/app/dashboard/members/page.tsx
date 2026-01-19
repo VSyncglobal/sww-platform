@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import api from '@/lib/api'; // Use direct API for actions
 import { AdminDataService, AdminMember } from '@/services/admin-data.service';
-import { User, RefreshCcw, Search } from 'lucide-react';
+import { User, RefreshCcw, CheckCircle, Loader2 } from 'lucide-react';
 
 export default function MembersPage() {
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -17,6 +19,19 @@ export default function MembersPage() {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApprove = async (id: string) => {
+    if(!confirm("Activate this member?")) return;
+    setActionLoading(id);
+    try {
+        await api.patch(`/members/${id}/approve`);
+        await fetchData(); // Refresh list
+    } catch (e: any) {
+        alert(e.response?.data?.message || 'Failed to approve member');
+    } finally {
+        setActionLoading(null);
     }
   };
 
@@ -37,7 +52,7 @@ export default function MembersPage() {
 
       <div className="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
         {loading ? (
-           <div className="p-20 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div></div>
+           <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-slate-400" /></div>
         ) : (
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50/50">
@@ -45,7 +60,7 @@ export default function MembersPage() {
                 <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase">Profile</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase">Role</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase">Status</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase">Joined</th>
+                <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -53,13 +68,12 @@ export default function MembersPage() {
                 <tr key={m.id} className="hover:bg-slate-50">
                   <td className="px-6 py-4">
                     <div className="flex items-center">
-                      <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 mr-3">
-                        <User size={20} />
+                      <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 mr-3 font-bold">
+                        {m.profile?.firstName?.[0] || 'U'}
                       </div>
                       <div>
                         <div className="text-sm font-bold text-slate-900">{m.profile?.firstName || 'Admin'} {m.profile?.lastName}</div>
                         <div className="text-xs text-slate-500">{m.email}</div>
-                        <div className="text-xs text-slate-400">{m.phoneNumber}</div>
                       </div>
                     </div>
                   </td>
@@ -69,12 +83,21 @@ export default function MembersPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${m.status === 'ACTIVE' ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}`}>
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${m.status === 'ACTIVE' ? 'text-green-700 bg-green-50' : 'text-yellow-700 bg-yellow-50'}`}>
                       {m.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-500">
-                    {new Date(m.createdAt).toLocaleDateString()}
+                  <td className="px-6 py-4 text-right">
+                    {m.status === 'PENDING' && (
+                        <button 
+                            onClick={() => handleApprove(m.id)}
+                            disabled={actionLoading === m.id}
+                            className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                            {actionLoading === m.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                            Approve
+                        </button>
+                    )}
                   </td>
                 </tr>
               ))}

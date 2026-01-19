@@ -1,5 +1,5 @@
 export const jwtConstants = {
-  // In production, this must come from .env.
-  secret: 'SUPER_SECRET_KEY_12345_DO_NOT_SHARE', 
+  // This is a fallback. The system prefers process.env.JWT_SECRET
+  secret: 'SUPER_SECRET_FALLBACK_KEY_DO_NOT_USE_IN_PROD',
   expiresIn: '1d',
-} as const; // <--- FIX: "as const" ensures strict typing for '1d'
+} as const;

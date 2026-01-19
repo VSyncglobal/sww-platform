@@ -1,5 +1,5 @@
 // apps/api/src/members/members.controller.ts
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Patch, Param, Get, Body, UseGuards } from '@nestjs/common';
 import { MembersService } from './members.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { AuthGuard } from '@nestjs/passport'; // The JWT Guard
@@ -27,5 +27,10 @@ export class MembersController {
   @Roles(Role.SUPER_ADMIN, Role.SECRETARY, Role.CHAIRPERSON)
   findAll() {
     return this.membersService.findAll();
+  }
+  @Patch(':id/approve')
+  @Roles(Role.CHAIRPERSON, Role.SECRETARY, Role.SUPER_ADMIN)
+  approve(@Param('id') id: string) {
+    return this.membersService.approveMember(id);
   }
 }

@@ -36,32 +36,26 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
     setError('');
     try {
       const endpoint = view === 'login' ? '/auth/login' : '/auth/register';
-      
-      console.log("1. Sending credentials..."); 
-      const response = await api.post(endpoint, data);
-      
-      console.log("2. Response received:", response.data);
-
-      // --- CRITICAL FIX: SAVE THE TOKEN ---
-      if (response.data.access_token) {
-        localStorage.setItem('token', response.data.access_token);
-        // Also set a cookie just in case
-        document.cookie = `token=${response.data.access_token}; path=/`;
-        console.log("3. Token Saved to Storage!");
-      } else {
-        console.error("3. ERROR: No access_token found in response!");
-      }
-      // ------------------------------------
+      const res = await api.post(endpoint, data);
       
       if (view === 'register') {
         setView('login');
         setError('Registration successful! Please login.');
       } else {
+        // Handle successful login
+        // If your backend returns { accessToken, user }:
+        if (res.data.accessToken) {
+            localStorage.setItem('token', res.data.accessToken); 
+        }
+        // Store user info for UI
+        if (res.data.user) {
+            localStorage.setItem('user', JSON.stringify(res.data.user));
+        }
+
         router.push('/dashboard');
         onClose();
       }
     } catch (err: any) {
-      console.error("Login Error:", err);
       setError(err.response?.data?.message || 'Something went wrong');
     } finally {
       setIsLoading(false);
@@ -102,8 +96,8 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {view === 'register' && (
                <div className="grid grid-cols-2 gap-3">
-                 <input {...register('firstName')} placeholder="First Name" className={inputClasses} />
-                 <input {...register('lastName')} placeholder="Last Name" className={inputClasses} />
+                 <input {...register('firstName')} placeholder="First Name" className={inputClasses} required />
+                 <input {...register('lastName')} placeholder="Last Name" className={inputClasses} required />
                </div>
             )}
 
@@ -128,9 +122,24 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
             </div>
             
             {view === 'register' && (
-              <div>
-                <input {...register('phoneNumber')} placeholder="Phone (e.g. 2547...)" className={inputClasses} />
-              </div>
+              <>
+                <div>
+                    <input {...register('phoneNumber')} placeholder="Phone (e.g. 2547...)" className={inputClasses} required />
+                </div>
+                 <div>
+                    <input {...register('nationalId')} placeholder="National ID" className={inputClasses} required />
+                </div>
+                <div>
+                     <input type="date" {...register('dateOfBirth')} className={inputClasses} required />
+                </div>
+                <div>
+                    <select {...register('gender')} className={inputClasses} required>
+                        <option value="">Select Gender</option>
+                        <option value="MALE">Male</option>
+                        <option value="FEMALE">Female</option>
+                    </select>
+                </div>
+              </>
             )}
 
             {/* DYNAMIC ACTION BUTTON */}

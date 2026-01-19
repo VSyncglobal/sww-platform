@@ -1,19 +1,25 @@
-// apps/api/src/members/members.service.ts
-import { Injectable, ConflictException } from '@nestjs/common';
-import { PrismaClient, Role, AccountStatus } from '@prisma/client';
+import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Role, AccountStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { PrismaService } from '../prisma/prisma.service';
 
-const prisma = new PrismaClient();
-
 @Injectable()
 export class MembersService {
   constructor(private prisma: PrismaService) {}
+
+  async findAll(status?: AccountStatus) {
+    const where = status ? { status } : {};
+    return this.prisma.user.findMany({
+      where,
+      include: { profile: true, wallet: true },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
   
   async create(createMemberDto: CreateMemberDto) {
     // 1. Check for Duplicates
-    const existing = await prisma.user.findFirst({
+    const existing = await this.prisma.user.findFirst({
       where: {
         OR: [
           { email: createMemberDto.email },
@@ -26,10 +32,11 @@ export class MembersService {
 
     // 2. Hash Default Password
     const salt = await bcrypt.genSalt(10);
+    // Note: Using nationalId as default password based on your logic
     const passwordHash = await bcrypt.hash(createMemberDto.nationalId, salt);
 
     // 3. Transaction: Create User + Profile + Wallet
-    return await prisma.$transaction(async (tx) => {
+return await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email: createMemberDto.email,
@@ -60,17 +67,22 @@ export class MembersService {
         include: { profile: true, wallet: true }
       });
 
+      // Exclude password hash from result
       const { passwordHash: _, ...result } = user;
       return result;
     });
   }
 
-  async findAll() {
-    return prisma.user.findMany({
-      include: { profile: true, wallet: true },
-      orderBy: { createdAt: 'desc' }
+  async approveMember(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { status: 'ACTIVE' }
     });
   }
+
   async findAllAdmin() {
     return this.prisma.user.findMany({
       select: {
@@ -90,5 +102,4 @@ export class MembersService {
       orderBy: { createdAt: 'desc' }
     });
   }
-
 }

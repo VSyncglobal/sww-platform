@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, NotFoundException, Logger, ForbiddenException } from '@nestjs/common'; // <--- FIXED: Added ForbiddenException
 import { PrismaService } from '../prisma/prisma.service';
-import { LoanStatus, TransactionType, TransactionStatus, PaymentProvider } from '@prisma/client';
+import { LoanStatus, TransactionType, TransactionStatus, PaymentProvider, GuarantorStatus } from '@prisma/client';
 
 @Injectable()
 export class LoansService {
@@ -83,7 +83,6 @@ export class LoansService {
     const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
     if (!loan) throw new NotFoundException('Loan not found');
     
-    // In strict mode, you'd check if guarantors are ACCEPTED here.
     return await this.prisma.loan.update({
       where: { id: loanId },
       data: { status: LoanStatus.PENDING_APPROVAL }
@@ -167,8 +166,9 @@ export class LoansService {
     if (!loan) throw new NotFoundException('Loan not found');
     if (loan.status !== 'ACTIVE' && loan.status !== 'DEFAULTED') throw new BadRequestException('Loan not active');
 
+    // FIX: Null Check for User/Wallet
+    if (!loan.user || !loan.user.wallet) throw new NotFoundException('Wallet not found');
     const wallet = loan.user.wallet;
-    if (!wallet) throw new NotFoundException('Wallet not found');
     
     // Split Payment Logic
     const currentBalance = Number(loan.balance);
@@ -187,7 +187,7 @@ export class LoansService {
         where: { id: loanId },
         data: {
           balance: { decrement: loanDeduction },
-          status: (loanDeduction === currentBalance) ? LoanStatus.COMPLETED : loan.status
+          status: (loanDeduction >= currentBalance) ? LoanStatus.COMPLETED : loan.status
         }
       });
 
@@ -203,11 +203,14 @@ export class LoansService {
       if (updatedLoan.status === LoanStatus.COMPLETED) {
         for (const g of loan.guarantors) {
           if (g.status === 'ACCEPTED') {
-             await tx.wallet.update({
-               where: { userId: g.userId! },
-               data: { lockedSavings: { decrement: g.amountLocked } }
-             });
-             // Explicit cast to any to avoid enum strictness if types out of sync
+             if (g.userId) { // Check if guarantor has a user ID
+                await tx.wallet.update({
+                    where: { userId: g.userId },
+                    data: { lockedSavings: { decrement: g.amountLocked } }
+                });
+             }
+             
+             // Using 'as any' as a safeguard if enum not updated in client yet, otherwise use GuarantorStatus.RELEASED
              await tx.guarantor.update({
                where: { id: g.id },
                data: { status: 'RELEASED' as any } 
@@ -338,9 +341,10 @@ export class LoansService {
         data: { status: LoanStatus.DEFAULTED }
       });
 
+      // Ensure 'DEFAULTED' exists in your AccountStatus Enum, otherwise use SUSPENDED
       await tx.user.update({
         where: { id: loan.userId },
-        data: { status: 'DEFAULTED' } // Ensure 'DEFAULTED' is in AccountStatus enum
+        data: { status: 'DEFAULTED' as any } 
       });
 
       this.logger.warn(`Loan ${loanId} defaulted. User blocked.`);
@@ -380,6 +384,87 @@ export class LoansService {
         user: { select: { id: true, email: true, phoneNumber: true, profile: true, wallet: true } },
         guarantors: true
       }
+    });
+  }
+
+  async addNote(loanId: string, authorId: string, content: string) {
+    const author = await this.prisma.user.findUnique({ where: { id: authorId } });
+    if (!author) throw new NotFoundException('Author not found');
+
+    return this.prisma.loanNote.create({
+      data: {
+        loanId,
+        authorId,
+        content,
+        role: author.role,
+      },
+      include: { author: { include: { profile: true } } }
+    });
+  }
+
+  // --- NEW: Guarantor Digital Signature Action ---
+  async respondToGuarantorRequest(
+    guarantorId: string, 
+    userId: string, 
+    action: 'ACCEPT' | 'REJECT', 
+    signature?: string
+  ) {
+    const request = await this.prisma.guarantor.findUnique({
+      where: { id: guarantorId },
+      include: { user: { include: { profile: true } }, loan: true }
+    });
+
+    if (!request) throw new NotFoundException('Guarantor request not found');
+    
+    // FIX: Using ForbiddenException here
+    if (request.userId !== userId) throw new ForbiddenException('Not authorized for this request');
+    
+    if (request.status !== GuarantorStatus.PENDING_GUARANTOR_ACTION) {
+      throw new BadRequestException('Request is not pending action');
+    }
+
+    if (action === 'ACCEPT') {
+      // 1. Digital Signature Check (First Name Match - Case Insensitive)
+      const firstName = request.user?.profile?.firstName?.toLowerCase();
+      const signedName = signature?.trim().toLowerCase();
+
+      if (!firstName || !signedName || firstName !== signedName) {
+        throw new BadRequestException(`Digital Signature Failed. Please type "${request.user?.profile?.firstName}" exactly.`);
+      }
+
+      // 2. Lock Funds
+      await this.prisma.$transaction([
+        this.prisma.wallet.update({
+          where: { userId },
+          data: { lockedSavings: { increment: request.amountLocked } }
+        }),
+        this.prisma.guarantor.update({
+          where: { id: guarantorId },
+          data: { status: GuarantorStatus.ACCEPTED }
+        })
+      ]);
+
+      return { message: 'Guarantorship Accepted & Funds Locked' };
+    } else {
+      await this.prisma.guarantor.update({
+        where: { id: guarantorId },
+        data: { status: GuarantorStatus.REJECTED }
+      });
+      return { message: 'Guarantorship Rejected' };
+    }
+  }
+
+  async getMyGuarantorRequests(userId: string) {
+    return this.prisma.guarantor.findMany({
+      where: { userId },
+      include: { 
+        loan: { 
+          include: { 
+            user: { include: { profile: true } } 
+          } 
+        } 
+      },
+      orderBy: { createdAt: 'desc' }
     });
   }
 }

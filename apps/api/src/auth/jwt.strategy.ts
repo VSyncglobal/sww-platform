@@ -1,20 +1,31 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { PassportStrategy } from '@nestjs/passport';
+import { PassportStrategy, AuthGuard } from '@nestjs/passport'; // Import AuthGuard
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { jwtConstants } from './constants';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { jwtConstants } from './constants';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService, 
+  ) {
     super({
-      // Check Header FIRST, then Cookie
+      // 1. Check Auth Header (Bearer), 2. Check Cookies
       jwtFromRequest: ExtractJwt.fromExtractors([
         ExtractJwt.fromAuthHeaderAsBearerToken(),
-        (req) => req?.cookies?.Authentication,
+        (req) => {
+          let token = null;
+          if (req && req.cookies) {
+            token = req.cookies['Authentication'];
+          }
+          return token;
+        },
       ]),
       ignoreExpiration: false,
-      secretOrKey: jwtConstants.secret,
+      // FIX: Load secret from ConfigService with fallback
+      secretOrKey: configService.get<string>('JWT_SECRET') || jwtConstants.secret,
     });
   }
 
@@ -23,7 +34,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid Token Structure');
     }
 
-    // Security: Check if user still exists and is not BANNED
     const user = await this.prisma.user.findUnique({ 
         where: { id: payload.sub } 
     });
@@ -32,7 +42,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         throw new UnauthorizedException('Account access restricted');
     }
 
-    // This object is attached to req.user in Controllers
-    return { userId: user.id, email: user.email, role: user.role };
+    // This object attaches to req.user
+    return { 
+        userId: user.id, 
+        email: user.email, 
+        role: user.role 
+    };
   }
 }
+
+// FIX: Export this class so AuthController can import it
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {}

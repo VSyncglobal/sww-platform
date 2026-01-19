@@ -18,6 +18,11 @@ enum Role {
   SUPER_ADMIN
 }
 
+enum ExecutionMode {
+  AUTOMATIC
+  MANUAL
+}
+
 enum AccountStatus {
   PENDING
   ACTIVE
@@ -111,10 +116,14 @@ model User {
   monthlyReports      MonthlyReport[]  
   auditLogs           AuditLog[]
   withdrawalRequests  WithdrawalRequest[]
-  welfareClaims       WelfareClaim[]    // <--- Added Relation
+  welfareClaims       WelfareClaim[]     
+
+  // FIX: Added opposite relations for LoanNote and Document
+  authoredNotes       LoanNote[]
+  uploadedDocuments   Document[]
   
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@map("users")
 }
@@ -177,6 +186,7 @@ model Transaction {
   type            TransactionType
   status          TransactionStatus @default(PENDING)
   provider        PaymentProvider   @default(SYSTEM)
+  executionMode   ExecutionMode     @default(AUTOMATIC)
   referenceCode   String   @unique
   description     String?
   metadata        Json?    
@@ -196,13 +206,44 @@ model Loan {
   rate            Decimal     @default(0.05)
   duration        Int         @default(30)
   status          LoanStatus  @default(PENDING_VERIFICATION)
-  adminNotes      String?     @db.Text // <--- Added for Admin Verification Notes
+  adminNotes      String?     @db.Text 
   appliedAt       DateTime    @default(now())
   disbursedAt     DateTime?   
   dueDate         DateTime?   
   guarantors      Guarantor[]
+  notes           LoanNote[]     
+  documents       Document[]
 
   @@map("loans")
+}
+
+model LoanNote {
+  id        String   @id @default(uuid())
+  loanId    String
+  loan      Loan     @relation(fields: [loanId], references: [id])
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  content   String   @db.Text
+  role      Role     
+  createdAt DateTime @default(now())
+
+  @@map("loan_notes")
+}
+
+model Document {
+  id           String   @id @default(uuid())
+  name         String
+  url          String
+  mimeType     String
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  
+  loanId       String?
+  loan         Loan?    @relation(fields: [loanId], references: [id])
+  
+  createdAt    DateTime @default(now())
+
+  @@map("documents")
 }
 
 model Guarantor {
@@ -210,7 +251,6 @@ model Guarantor {
   loanId          String
   loan            Loan            @relation(fields: [loanId], references: [id])
   
-  // Guarantor logic updated for email-first verification
   guarantorEmail  String          
   userId          String?         
   user            User?           @relation(fields: [userId], references: [id])
@@ -223,22 +263,21 @@ model Guarantor {
   @@map("guarantors")
 }
 
-// NEW: Welfare / Benevolence Model
 model WelfareClaim {
-  id              String       @id @default(uuid())
+  id              String        @id @default(uuid())
   userId          String
-  user            User         @relation(fields: [userId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
   
   type            WelfareType
   description     String
-  documentUrl     String?      // Vercel Blob URL
-  amountRequested Decimal      @db.Decimal(15, 2)
+  documentUrl     String?       
+  amountRequested Decimal       @db.Decimal(15, 2)
   
   status          WelfareStatus @default(PENDING)
   adminNotes      String?
   
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@map("welfare_claims")
 }
@@ -258,20 +297,20 @@ model AuditLog {
 }
 
 model WithdrawalRequest {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  amount      Decimal  @db.Decimal(15, 2)
-  reason      String?
-  destination String 
-  status      WorkflowStatus @default(PENDING_VERIFICATION)
-  verifiedBy  String? 
-  approvedBy  String? 
-  disbursedBy String? 
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  amount        Decimal  @db.Decimal(15, 2)
+  reason        String?
+  destination   String 
+  status        WorkflowStatus @default(PENDING_VERIFICATION)
+  verifiedBy    String? 
+  approvedBy    String? 
+  disbursedBy   String? 
   rejectionReason String?
   transactionId String? @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@map("withdrawal_requests")
 }

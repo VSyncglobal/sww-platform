@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto'; 
+import { LoginDto } from './dto/login.dto'; // <--- Added Import
 
 @Injectable()
 export class AuthService {
@@ -11,8 +12,24 @@ export class AuthService {
     private jwtService: JwtService
   ) {}
 
+  // --- HELPER: Centralized Token Generation ---
+  private async generateAuthResponse(user: any) {
+    const payload = { email: user.email, sub: user.id, role: user.role };
+    return {
+      accessToken: this.jwtService.sign(payload), // <--- FIXED: camelCase to match Controller
+      user: {
+        id: user.id,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        role: user.role,
+        firstName: user.profile?.firstName,
+        lastName: user.profile?.lastName,
+      }
+    };
+  }
+
   async register(dto: RegisterDto) {
-    // 1. Check Uniqueness (Email & Phone are now both on User model)
+    // 1. Check Uniqueness
     const existingEmail = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existingEmail) throw new ConflictException('Email already in use');
 
@@ -27,12 +44,11 @@ export class AuthService {
         return tx.user.create({
           data: {
             email: dto.email,
-            phoneNumber: dto.phoneNumber, // <--- Correctly placed on User
+            phoneNumber: dto.phoneNumber,
             passwordHash: hashedPassword,
             role: 'MEMBER', 
-            status: 'ACTIVE', // Matches your AccountStatus enum
+            status: 'PENDING',
             
-            // Create Wallet (New schema has savings/loan/welfare balances)
             wallet: {
               create: {
                 savingsBalance: 0,
@@ -42,7 +58,6 @@ export class AuthService {
               },
             },
             
-            // Create MemberProfile (Renamed from Profile)
             profile: {
               create: {
                 firstName: dto.firstName,
@@ -57,11 +72,28 @@ export class AuthService {
         });
       });
 
-      return this.login(newUser);
+      // <--- FIXED: Use helper instead of calling login() with Entity
+      return this.generateAuthResponse(newUser);
+
     } catch (error) {
       console.error("Registration Error:", error);
       throw new InternalServerErrorException('Registration failed. Please try again.');
     }
+  }
+
+  // <--- FIXED: Updated to accept LoginDto and handle validation
+  async login(dto: LoginDto) {
+    const user = await this.prisma.user.findUnique({ 
+      where: { email: dto.email },
+      include: { profile: true, wallet: true } 
+    });
+
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    const isMatch = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!isMatch) throw new UnauthorizedException('Invalid credentials');
+
+    return this.generateAuthResponse(user);
   }
 
   async validateUser(email: string, pass: string): Promise<any> {
@@ -71,13 +103,6 @@ export class AuthService {
       return result;
     }
     return null;
-  }
-
-  async login(user: any) {
-    const payload = { email: user.email, sub: user.id, role: user.role };
-    return {
-      access_token: this.jwtService.sign(payload),
-    };
   }
 
   async getUserProfile(userId: string) {

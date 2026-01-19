@@ -3,16 +3,26 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export default registerAs('core', () => {
-  // If running via NestJS (dist folder), we might need to adjust path, 
-  // but for development 'process.cwd()' usually points to the project root.
+  // Point to core-config.json in the root
   const configPath = path.resolve(process.cwd(), 'core-config.json');
   
-  // Safe failover if file doesn't exist yet
+  // Safe failover if file doesn't exist
   if (!fs.existsSync(configPath)) {
     console.warn(`⚠️ core-config.json not found at ${configPath}. Using defaults.`);
-    return { governance_mode: 'MANUAL' };
+    return { 
+      governance_mode: 'MANUAL',
+      features: {
+        auto_loan_approval: false,
+        strict_guarantor_check: true
+      }
+    };
   }
 
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  return config;
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return config;
+  } catch (error) {
+    console.error('Error parsing core-config.json', error);
+    return { governance_mode: 'MANUAL' };
+  }
 });

@@ -1,29 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Wallet, Activity, LogOut, ShieldCheck } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { LayoutDashboard, Users, Wallet, Activity, LogOut, ShieldCheck, UserCircle } from 'lucide-react';
+import { useAdminAuth } from '@/context/AuthContext';
 
 export default function AdminSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
+  const { user, logout } = useAdminAuth();
 
-  const handleLogout = () => {
-    localStorage.removeItem('admin_token');
-    router.push('/login');
-  };
-
-  // ✅ UPDATED ROUTES
   const menuItems = [
     { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Loan Governance', href: '/dashboard/loans', icon: ShieldCheck }, // Updated path
+    { name: 'Loan Governance', href: '/dashboard/loans', icon: ShieldCheck },
     { name: 'Members', href: '/dashboard/members', icon: Users },
     { name: 'Savings Records', href: '/dashboard/savings', icon: Wallet },
     { name: 'System Logs', href: '/dashboard/logs', icon: Activity },
   ];
 
   return (
-    <div className="w-64 bg-slate-900 text-white min-h-screen flex flex-col fixed left-0 top-0 border-r border-slate-800 z-50">
+    <div className="w-64 bg-slate-900 text-white min-h-screen flex flex-col fixed left-0 top-0 border-r border-slate-800 z-50 transition-all">
       {/* HEADER */}
       <div className="p-6 border-b border-slate-800 flex items-center space-x-3">
         <div className="h-8 w-8 bg-blue-600 rounded flex items-center justify-center font-bold">A</div>
@@ -33,10 +28,26 @@ export default function AdminSidebar() {
         </div>
       </div>
 
+      {/* USER PROFILE SNIPPET */}
+      <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/50">
+        <div className="flex items-center gap-3">
+            <div className="bg-slate-700 p-2 rounded-full">
+                <UserCircle size={20} className="text-slate-300" />
+            </div>
+            <div className="overflow-hidden">
+                <p className="text-sm font-bold truncate text-white">
+                    {user?.firstName || 'Admin'} {user?.lastName || 'User'}
+                </p>
+                <p className="text-[10px] text-emerald-400 font-medium uppercase tracking-wider">
+                    {user?.role?.replace('_', ' ')}
+                </p>
+            </div>
+        </div>
+      </div>
+
       {/* NAVIGATION */}
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         {menuItems.map((item) => {
-          // Highlight logic: Exact match OR sub-path match (e.g. /dashboard/loans/123)
           const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
           
           return (
@@ -59,7 +70,7 @@ export default function AdminSidebar() {
       {/* FOOTER */}
       <div className="p-4 border-t border-slate-800">
         <button 
-          onClick={handleLogout}
+          onClick={logout}
           className="flex items-center space-x-3 px-4 py-3 w-full rounded-lg text-red-400 hover:bg-red-900/20 hover:text-red-300 transition-colors"
         >
           <LogOut size={20} />
