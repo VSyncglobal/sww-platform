@@ -3,11 +3,14 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 
-interface User {
+export interface User {
   id: string;
   email: string;
   role: string;
-  profile?: { firstName: string; lastName: string };
+  phoneNumber?: string;
+  status?: string;
+  createdAt?: string;
+  profile?: { firstName: string; lastName: string; nationalId?: string };
 }
 
 interface AuthContextType {
@@ -29,22 +32,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const token = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
     if (token && storedUser) {
-        setUser(JSON.parse(storedUser));
+      setUser(JSON.parse(storedUser));
     }
     setLoading(false);
   }, []);
 
+  // Strict Guard Logic
   useEffect(() => {
     if (loading) return;
-    const isAuthPage = pathname.startsWith('/login') || pathname === '/';
+
+    const isAuthPage = pathname === '/login' || pathname === '/';
     const isDashboard = pathname.startsWith('/dashboard');
 
-    if (user && isAuthPage) {
-        // router.replace('/dashboard'); // Uncomment to auto-redirect
-    } else if (!user && isDashboard) {
-        router.replace('/'); 
+    if (!user && isDashboard) {
+      router.replace('/'); // Redirect to home/login
+    } else if (user && isAuthPage) {
+      router.replace('/dashboard'); // Redirect to dashboard
     }
-  }, [user, loading, pathname]);
+  }, [user, loading, pathname, router]);
 
   const login = (token: string, userData: User) => {
     localStorage.setItem('token', token);
@@ -54,10 +59,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.clear();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
     router.replace('/');
   };
+
+  // BLOCK RENDERING until auth check is done or redirect happens
+  if (loading) return null; // Or a spinner component
+  if (!user && pathname.startsWith('/dashboard')) return null;
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>

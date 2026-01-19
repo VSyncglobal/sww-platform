@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { X, Loader2, ArrowRight, CheckCircle } from 'lucide-react';
 import api from '@/lib/api';
+import { useAuth } from '@/context/AuthContext'; // <--- IMPORT THIS
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -17,18 +18,14 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+  const { login } = useAuth(); // <--- DESTRUCTURE LOGIN
   
   const { register, handleSubmit, reset } = useForm();
 
   if (!isOpen) return null;
 
-  // High contrast inputs (Dark Text on Light Gray)
   const inputClasses = "w-full bg-gray-50 border-2 border-gray-200 text-gray-900 text-sm rounded-xl focus:border-blue-800 focus:bg-white block w-full p-3.5 transition-all outline-none font-bold placeholder:text-gray-400";
-
-  // --- BUTTON STYLES (EXPLICIT COLORS) ---
-  // Login Button: Blue -> Gold
   const loginBtnStyle = "bg-[#1e3a8a] text-white hover:bg-[#d97706] hover:text-[#1e3a8a]";
-  // Register Button: Gold -> Blue
   const registerBtnStyle = "bg-[#d97706] text-[#1e3a8a] hover:bg-[#1e3a8a] hover:text-white";
 
   const onSubmit = async (data: any) => {
@@ -42,20 +39,16 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
         setView('login');
         setError('Registration successful! Please login.');
       } else {
-        // Handle successful login
-        // If your backend returns { accessToken, user }:
-        if (res.data.accessToken) {
-            localStorage.setItem('token', res.data.accessToken); 
+        // FIX: Use Context Login to update State + LocalStorage + Redirect
+        if (res.data.accessToken && res.data.user) {
+            login(res.data.accessToken, res.data.user);
+            onClose();
+        } else {
+            throw new Error("Invalid response from server");
         }
-        // Store user info for UI
-        if (res.data.user) {
-            localStorage.setItem('user', JSON.stringify(res.data.user));
-        }
-
-        router.push('/dashboard');
-        onClose();
       }
     } catch (err: any) {
+      console.error(err);
       setError(err.response?.data?.message || 'Something went wrong');
     } finally {
       setIsLoading(false);
@@ -64,13 +57,9 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Dark Overlay */}
       <div className="absolute inset-0 bg-[#1e3a8a]/80 backdrop-blur-sm" onClick={onClose}></div>
-
-      {/* Modal Box */}
       <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden z-10 animate-in zoom-in-95 duration-200">
         
-        {/* Header */}
         <div className="bg-white px-8 pt-8 pb-4 flex justify-between items-start">
           <div>
             <h2 className="text-3xl font-extrabold text-[#1e3a8a] tracking-tight">
@@ -85,7 +74,6 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
           </button>
         </div>
 
-        {/* Form Area */}
         <div className="px-8 pb-8">
           {error && (
             <div className={`p-4 rounded-xl text-sm font-bold mb-6 flex items-center gap-2 ${error.includes('successful') ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-600'}`}>
@@ -102,36 +90,18 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
             )}
 
             <div>
-              <input 
-                {...register('email')} 
-                type="email" 
-                className={inputClasses}
-                placeholder="Email Address"
-                required 
-              />
+              <input {...register('email')} type="email" className={inputClasses} placeholder="Email Address" required />
             </div>
 
             <div>
-              <input 
-                {...register('password')} 
-                type="password" 
-                className={inputClasses}
-                placeholder="Password"
-                required 
-              />
+              <input {...register('password')} type="password" className={inputClasses} placeholder="Password" required />
             </div>
             
             {view === 'register' && (
               <>
-                <div>
-                    <input {...register('phoneNumber')} placeholder="Phone (e.g. 2547...)" className={inputClasses} required />
-                </div>
-                 <div>
-                    <input {...register('nationalId')} placeholder="National ID" className={inputClasses} required />
-                </div>
-                <div>
-                     <input type="date" {...register('dateOfBirth')} className={inputClasses} required />
-                </div>
+                <div><input {...register('phoneNumber')} placeholder="Phone (e.g. 2547...)" className={inputClasses} required /></div>
+                <div><input {...register('nationalId')} placeholder="National ID" className={inputClasses} required /></div>
+                <div><input type="date" {...register('dateOfBirth')} className={inputClasses} required /></div>
                 <div>
                     <select {...register('gender')} className={inputClasses} required>
                         <option value="">Select Gender</option>
@@ -142,7 +112,6 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
               </>
             )}
 
-            {/* DYNAMIC ACTION BUTTON */}
             <button 
               disabled={isLoading}
               className={`w-full font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/20 flex justify-center items-center gap-2 mt-4 text-lg ${view === 'login' ? loginBtnStyle : registerBtnStyle}`}
@@ -156,7 +125,6 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }: Au
             </button>
           </form>
 
-          {/* Footer Toggle */}
           <div className="mt-6 text-center text-sm font-medium text-gray-500 border-t border-gray-100 pt-6">
             {view === 'login' ? "New member? " : "Already have an account? "}
             <button 

@@ -1,20 +1,20 @@
-import { Controller, Post, Patch, Body, Param, UseGuards, Request, Get } from '@nestjs/common';
+import { Controller, Post, Patch, Body, Param, UseGuards, Request, Get, BadRequestException } from '@nestjs/common';
 import { LoansService } from './loans.service';
-import { GuarantorsService } from './guarantors.service';
-import { AuthGuard } from '@nestjs/passport';
+import { JwtAuthGuard } from '../auth/jwt.strategy';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Role } from '@prisma/client';
 
 @Controller('loans')
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class LoansController {
   constructor(
     private readonly loansService: LoansService,
-    private readonly guarantorsService: GuarantorsService
   ) {}
 
-  // --- LOAN APPLICATION & INFO ---
+  // ==================================================================
+  // 1. MEMBER ENDPOINTS
+  // ==================================================================
 
   @Get('eligibility')
   checkEligibility(@Request() req: any) {
@@ -24,7 +24,6 @@ export class LoansController {
   @Post('apply')
   @Roles(Role.MEMBER, Role.SUPER_ADMIN)
   apply(@Request() req: any, @Body() body: { amount: number, guarantorEmail: string }) {
-    // Correctly passing 3 arguments: userId, amount, email
     return this.loansService.apply(req.user.userId, body.amount, body.guarantorEmail);
   }
 
@@ -38,26 +37,61 @@ export class LoansController {
     return this.loansService.findOne(id, req.user.userId);
   }
 
-  // --- ADMIN / WORKFLOW ACTIONS ---
+  @Post(':id/repay')
+  @Roles(Role.MEMBER, Role.SUPER_ADMIN)
+  repay(@Param('id') id: string, @Body() body: { amount: number }) {
+    return this.loansService.repay(id, body.amount);
+  }
 
-  // Admin verifies the guarantor exists and has funds (Silent Check)
+  // ==================================================================
+  // 2. GUARANTOR ENDPOINTS
+  // ==================================================================
+
+  // FIX: This route matches the frontend call api.get('/loans/guarantors/incoming')
+  @Get('guarantors/incoming')
+  @Roles(Role.MEMBER, Role.SUPER_ADMIN)
+  getIncomingRequests(@Request() req: any) {
+    return this.loansService.getMyGuarantorRequests(req.user.userId);
+  }
+
+  // FIX: Added the POST route to handle the digital signature logic
+  @Post('guarantor/:id/respond')
+  @Roles(Role.MEMBER, Role.SUPER_ADMIN)
+  respondToGuarantorRequest(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { action: 'ACCEPT' | 'REJECT'; signature?: string }
+  ) {
+    if (!body.action) throw new BadRequestException('Action is required');
+    
+    return this.loansService.respondToGuarantorRequest(
+      id, 
+      req.user.userId, 
+      body.action, 
+      body.signature
+    );
+  }
+
+  // ==================================================================
+  // 3. ADMIN / GOVERNANCE WORKFLOW
+  // ==================================================================
+
+  @Get('admin/all')
+  @Roles(Role.CHAIRPERSON, Role.FINANCE_OFFICER, Role.TREASURER, Role.SUPER_ADMIN)
+  findAllAdmin() {
+    return this.loansService.findAllAdmin();
+  }
+
   @Patch('guarantors/:id/verify')
   @Roles(Role.FINANCE_OFFICER, Role.SUPER_ADMIN, Role.CHAIRPERSON)
   verifyGuarantor(@Param('id') id: string, @Body() body: { notes: string }) {
     return this.loansService.verifyGuarantor(id, body.notes);
   }
 
-  // Finance Officer approves sending the request to the Guarantor
   @Patch('guarantors/:id/approve-send')
   @Roles(Role.FINANCE_OFFICER, Role.SUPER_ADMIN)
   approveSend(@Param('id') id: string) {
     return this.loansService.approveGuarantorRequest(id);
-  }
-
-  @Get('admin/all')
-  @Roles(Role.CHAIRPERSON, Role.FINANCE_OFFICER, Role.TREASURER, Role.SUPER_ADMIN)
-  findAllAdmin() {
-    return this.loansService.findAllAdmin();
   }
 
   @Patch(':id/verify')
@@ -82,37 +116,5 @@ export class LoansController {
   @Roles(Role.TREASURER, Role.SUPER_ADMIN)
   disburse(@Param('id') id: string) {
     return this.loansService.disburse(id);
-  }
-
-  @Post(':id/repay')
-  @Roles(Role.MEMBER, Role.SUPER_ADMIN)
-  repay(@Param('id') id: string, @Body() body: { amount: number }) {
-    return this.loansService.repay(id, body.amount);
-  }
-
-  // --- GUARANTOR ACTIONS (INCOMING REQUESTS) ---
-
-  @Get('guarantors/incoming')
-  @Roles(Role.MEMBER, Role.SUPER_ADMIN)
-  getIncomingRequests(@Request() req: any) {
-    return this.guarantorsService.getIncomingRequests(req.user.userId);
-  }
-
-  @Post(':id/guarantors/request')
-  @Roles(Role.MEMBER, Role.SUPER_ADMIN)
-  addGuarantor(@Param('id') id: string, @Body() body: { guarantorId: string, amount: number }) {
-    return this.guarantorsService.requestGuarantee(id, body.guarantorId, body.amount);
-  }
-
-  @Patch('guarantors/:gid/accept')
-  @Roles(Role.MEMBER, Role.SUPER_ADMIN)
-  acceptGuarantee(@Param('gid') gid: string, @Request() req: any) {
-    return this.guarantorsService.acceptGuarantee(gid, req.user.userId);
-  }
-
-  @Patch('guarantors/:gid/reject')
-  @Roles(Role.MEMBER, Role.SUPER_ADMIN)
-  rejectGuarantee(@Param('gid') gid: string, @Request() req: any) {
-    return this.guarantorsService.rejectGuarantee(gid, req.user.userId);
   }
 }

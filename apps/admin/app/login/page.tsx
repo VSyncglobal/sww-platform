@@ -4,22 +4,29 @@ import { useState } from 'react';
 import api from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck } from 'lucide-react';
+import { useAdminAuth } from '@/context/AuthContext'; // <--- IMPORT CONTEXT
 
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { login } = useAdminAuth(); // <--- USE LOGIN FUNCTION
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       const { data } = await api.post('/auth/login', { email, password });
-      localStorage.setItem('admin_token', data.access_token);
       
-      // ✅ Redirect to Dashboard Home
-      router.push('/dashboard');
+      // FIX 1: Use 'accessToken' (camelCase) to match backend return
+      // FIX 2: Use context login to update state immediately
+      if (data.accessToken && data.user) {
+          login(data.accessToken, data.user);
+      } else {
+          throw new Error('Invalid credentials format');
+      }
+      
     } catch (err: any) {
       alert('Login Failed: ' + (err.response?.data?.message || 'Check credentials'));
     } finally {

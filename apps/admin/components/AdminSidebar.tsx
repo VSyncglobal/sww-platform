@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, Wallet, Activity, LogOut, ShieldCheck, UserCircle } from 'lucide-react';
+import { LayoutDashboard, Users, Wallet, Activity, LogOut, ShieldCheck, UserCircle, Settings } from 'lucide-react';
 import { useAdminAuth } from '@/context/AuthContext';
 
 export default function AdminSidebar() {
@@ -15,10 +15,11 @@ export default function AdminSidebar() {
     { name: 'Members', href: '/dashboard/members', icon: Users },
     { name: 'Savings Records', href: '/dashboard/savings', icon: Wallet },
     { name: 'System Logs', href: '/dashboard/logs', icon: Activity },
+    { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ];
 
   return (
-    <div className="w-64 bg-slate-900 text-white min-h-screen flex flex-col fixed left-0 top-0 border-r border-slate-800 z-50 transition-all">
+    <div className="w-64 bg-slate-900 text-white min-h-screen flex flex-col fixed left-0 top-0 border-r border-slate-800 z-50">
       {/* HEADER */}
       <div className="p-6 border-b border-slate-800 flex items-center space-x-3">
         <div className="h-8 w-8 bg-blue-600 rounded flex items-center justify-center font-bold">A</div>

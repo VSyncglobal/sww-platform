@@ -2,10 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { Plus, Search, Calendar, Download, Loader2, RefreshCw } from 'lucide-react';
+import { Plus, Search, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import api from '@/lib/api';
 
-// Define what a Transaction looks like
 interface Transaction {
   id: string;
   amount: number;
@@ -21,117 +20,97 @@ export default function DepositsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // 1. FETCH DATA
   const fetchTransactions = async () => {
     try {
       setIsLoading(true);
       const res = await api.get('/transactions');
       setTransactions(res.data);
-    } catch (error) {
-      console.error("Failed to fetch transactions", error);
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (error) { console.error(error); } 
+    finally { setIsLoading(false); }
   };
 
-  useEffect(() => {
-    fetchTransactions();
-  }, []);
+  useEffect(() => { fetchTransactions(); }, []);
 
-  // 2. HANDLE DEPOSIT FORM
   const { register, handleSubmit, reset } = useForm();
 
   const onDeposit = async (data: any) => {
     setIsProcessing(true);
     try {
-      // Send deposit request
       await api.post('/transactions/deposit', {
         amount: Number(data.amount),
-        phoneNumber: data.phoneNumber // Ensure backend handles this or uses profile phone
+        phoneNumber: data.phoneNumber
       });
-      
-      // On success
-      setDepositModalOpen(false);
-      reset();
-      fetchTransactions(); // Refresh table
-      alert('Deposit Initiated! Check your phone for M-Pesa prompt.');
-    } catch (error) {
-      console.error(error);
-      alert('Deposit Failed. Please try again.');
-    } finally {
-      setIsProcessing(false);
-    }
+      setDepositModalOpen(false); reset(); fetchTransactions();
+      alert('STK Push Sent! Check your phone.');
+    } catch (error) { alert('Deposit Failed.'); } 
+    finally { setIsProcessing(false); }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 animate-in fade-in duration-500">
       
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Deposits</h1>
-          <p className="text-gray-500 text-sm">Manage your savings and view transaction history.</p>
+          <h1 className="text-3xl font-black text-slate-800 tracking-tight">Deposits</h1>
+          <p className="text-slate-500 font-medium mt-1">Grow your savings securely via M-Pesa.</p>
         </div>
         
         <button 
           onClick={() => setDepositModalOpen(true)}
-          className="bg-[#d97706] hover:bg-[#b45309] text-white px-6 py-3 rounded-xl font-bold shadow-lg flex items-center gap-2 transition-transform hover:-translate-y-1"
+          className="bg-gradient-to-r from-[#d97706] to-amber-600 hover:to-amber-700 text-white px-8 py-3 rounded-xl font-bold shadow-xl shadow-amber-500/20 flex items-center gap-2 transition-all hover:-translate-y-1"
         >
-          <Plus size={20} />
-          New Deposit
+          <Smartphone size={20} />
+          M-Pesa Deposit
         </button>
       </div>
 
-      {/* SEARCH BAR (Visual Only for now) */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="Search transactions..." 
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-800"
-          />
+      <div className="card-vibe overflow-hidden">
+        <div className="p-4 border-b border-slate-100 flex gap-4 bg-white">
+           <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                type="text" 
+                placeholder="Search by reference..." 
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-0 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500"
+              />
+           </div>
+           <button onClick={fetchTransactions} className="p-2.5 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100 transition">
+              <RefreshCw size={18} />
+           </button>
         </div>
-        <button onClick={fetchTransactions} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
-          <RefreshCw size={18} />
-          Refresh
-        </button>
-      </div>
 
-      {/* TRANSACTIONS TABLE */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="p-12 text-center text-gray-500">Loading your history...</div>
-        ) : transactions.length === 0 ? (
-          <div className="p-12 text-center text-gray-500">No deposits found. Start saving today!</div>
+          <div className="p-20 text-center"><Loader2 className="animate-spin h-8 w-8 mx-auto text-slate-300" /></div>
         ) : (
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-gray-50 border-b border-gray-200">
+          <table className="w-full text-left">
+            <thead className="glass-header">
               <tr>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Reference</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">Amount (KES)</th>
+                <th className="px-6 py-4 font-bold text-xs uppercase tracking-wider">Date</th>
+                <th className="px-6 py-4 font-bold text-xs uppercase tracking-wider">Reference</th>
+                <th className="px-6 py-4 font-bold text-xs uppercase tracking-wider text-center">Status</th>
+                <th className="px-6 py-4 font-bold text-xs uppercase tracking-wider text-right">Amount</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-slate-50">
               {transactions.map((tx) => (
-                <tr key={tx.id} className="hover:bg-blue-50/50 transition">
-                  <td className="px-6 py-4 text-sm text-gray-600">
+                <tr key={tx.id} className="table-row-hover">
+                  <td className="px-6 py-4 text-sm font-medium text-slate-500">
                     {new Date(tx.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-4 text-sm font-mono text-gray-900">{tx.reference || 'N/A'}</td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${
-                      tx.status === 'COMPLETED' ? 'bg-green-100 text-green-800 border-green-200' :
-                      tx.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-                      'bg-red-100 text-red-800 border-red-200'
+                  <td className="px-6 py-4 text-sm font-mono text-slate-700 bg-slate-50/50 w-fit rounded-lg px-2 py-1">
+                    {tx.reference || '---'}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
+                      tx.status === 'COMPLETED' ? 'bg-green-50 text-green-700 border-green-100' :
+                      tx.status === 'PENDING' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
+                      'bg-red-50 text-red-700 border-red-100'
                     }`}>
                       {tx.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm font-bold text-gray-900 text-right">
-                    {tx.amount.toLocaleString()}
+                  <td className="px-6 py-4 text-sm font-black text-slate-900 text-right">
+                    KES {tx.amount.toLocaleString()}
                   </td>
                 </tr>
               ))}
@@ -140,54 +119,45 @@ export default function DepositsPage() {
         )}
       </div>
 
-      {/* DEPOSIT MODAL */}
+      {/* MODAL */}
       {isDepositModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-blue-900/80 backdrop-blur-sm" onClick={() => setDepositModalOpen(false)} />
-          <div className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl p-8 animate-in zoom-in-95">
-            <h2 className="text-2xl font-bold text-[#1e3a8a] mb-2">Make a Deposit</h2>
-            <p className="text-gray-500 mb-6">Enter details to trigger M-Pesa STK Push.</p>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setDepositModalOpen(false)} />
+          <div className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 animate-in zoom-in-95">
+            <h2 className="text-2xl font-black text-slate-800 mb-2">Load Wallet</h2>
+            <p className="text-slate-500 mb-8 font-medium">Enter amount to trigger STK Push.</p>
             
-            <form onSubmit={handleSubmit(onDeposit)} className="space-y-4">
+            <form onSubmit={handleSubmit(onDeposit)} className="space-y-6">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Amount (KES)</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Amount (KES)</label>
                 <input 
                   {...register('amount', { required: true })}
                   type="number" 
-                  className="w-full border-2 border-gray-200 rounded-xl p-3 focus:border-[#d97706] outline-none font-mono text-lg" 
-                  placeholder="e.g. 1000" 
+                  className="w-full bg-slate-50 border-0 rounded-xl p-4 font-black text-slate-800 text-xl focus:ring-2 focus:ring-amber-500" 
+                  placeholder="1000" 
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">M-Pesa Number</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">M-Pesa Phone</label>
                 <input 
                   {...register('phoneNumber', { required: true })}
                   type="text" 
-                  className="w-full border-2 border-gray-200 rounded-xl p-3 focus:border-[#d97706] outline-none font-mono text-lg" 
+                  className="w-full bg-slate-50 border-0 rounded-xl p-4 font-bold text-slate-800 focus:ring-2 focus:ring-amber-500" 
                   placeholder="2547..." 
                 />
               </div>
 
               <button 
                 disabled={isProcessing}
-                className="w-full bg-[#1e3a8a] text-white py-4 rounded-xl font-bold hover:bg-blue-900 transition shadow-lg flex justify-center"
+                className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-black transition shadow-lg flex justify-center items-center gap-2"
               >
-                {isProcessing ? <Loader2 className="animate-spin" /> : 'Pay with M-Pesa'}
-              </button>
-              
-              <button 
-                type="button"
-                onClick={() => setDepositModalOpen(false)}
-                className="w-full text-gray-500 py-2 hover:text-gray-700 font-medium"
-              >
-                Cancel
+                {isProcessing ? <Loader2 className="animate-spin" /> : <>Pay Now <Loader2 size={18} /></>}
               </button>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }

@@ -14,8 +14,8 @@ export default function GuarantorPage() {
 
   const fetchRequests = async () => {
     try {
-      // Fetches guarantor requests assigned to the current user
-      const res = await api.get('/loans/guarantors/me'); 
+      // FIX: URL corrected to match backend controller
+      const res = await api.get('/loans/guarantors/incoming'); 
       setRequests(res.data);
     } catch (e) { 
       console.error("Failed to fetch requests", e); 
@@ -28,12 +28,12 @@ export default function GuarantorPage() {
 
   const handleResponse = async (id: string, action: 'ACCEPT' | 'REJECT') => {
     try {
+      // Matches the POST endpoint in the updated controller below
       await api.post(`/loans/guarantor/${id}/respond`, {
         action,
         signature: action === 'ACCEPT' ? signature : undefined
       });
       
-      // Reset state and refresh list
       setSigningId(null);
       setSignature('');
       fetchRequests();
@@ -67,7 +67,6 @@ export default function GuarantorPage() {
           {requests.map(req => (
             <div key={req.id} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
               
-              {/* Request Header */}
               <div className="flex flex-col md:flex-row md:justify-between md:items-start mb-6 gap-4">
                 <div>
                   <h3 className="font-bold text-lg text-emerald-950">
@@ -85,7 +84,6 @@ export default function GuarantorPage() {
                 </span>
               </div>
 
-              {/* Warning / Info Box */}
               <div className="bg-blue-50 p-4 rounded-lg flex gap-3 items-start mb-6 border border-blue-100">
                 <AlertTriangle className="text-blue-600 shrink-0 mt-0.5" size={20} />
                 <div>
@@ -97,7 +95,6 @@ export default function GuarantorPage() {
                 </div>
               </div>
 
-              {/* Action Section */}
               {req.status === 'PENDING_GUARANTOR_ACTION' && (
                 <div className="border-t border-gray-100 pt-4">
                   {signingId === req.id ? (

@@ -1,9 +1,9 @@
 import { Injectable, ConflictException, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs'; // Ensure you are using bcryptjs or bcrypt consistently
 import { RegisterDto } from './dto/register.dto'; 
-import { LoginDto } from './dto/login.dto'; // <--- Added Import
+import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
@@ -16,14 +16,20 @@ export class AuthService {
   private async generateAuthResponse(user: any) {
     const payload = { email: user.email, sub: user.id, role: user.role };
     return {
-      accessToken: this.jwtService.sign(payload), // <--- FIXED: camelCase to match Controller
+      accessToken: this.jwtService.sign(payload),
+      // FIX: Structure matches Frontend User Interface
       user: {
         id: user.id,
         email: user.email,
         phoneNumber: user.phoneNumber,
         role: user.role,
-        firstName: user.profile?.firstName,
-        lastName: user.profile?.lastName,
+        status: user.status,
+        createdAt: user.createdAt,
+        profile: {
+            firstName: user.profile?.firstName,
+            lastName: user.profile?.lastName,
+            nationalId: user.profile?.nationalId,
+        }
       }
     };
   }
@@ -72,7 +78,6 @@ export class AuthService {
         });
       });
 
-      // <--- FIXED: Use helper instead of calling login() with Entity
       return this.generateAuthResponse(newUser);
 
     } catch (error) {
@@ -81,7 +86,6 @@ export class AuthService {
     }
   }
 
-  // <--- FIXED: Updated to accept LoginDto and handle validation
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({ 
       where: { email: dto.email },

@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import api from '@/lib/api';
 
 interface User {
   id: string;
@@ -28,17 +27,14 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    // 1. Check for token immediately on mount
     const token = localStorage.getItem('admin_token');
     const storedUser = localStorage.getItem('admin_user');
-
     if (token && storedUser) {
       setUser(JSON.parse(storedUser));
     }
     setLoading(false);
   }, []);
 
-  // 2. Strict Guard Logic
   useEffect(() => {
     if (loading) return;
 
@@ -66,19 +62,10 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     router.replace('/login');
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
-      </div>
-    );
-  }
-
-  // 3. Render children only if authorized (or on login page)
-  // If we are on a protected route and have no user, render nothing while redirect happens
-  if (!user && pathname.startsWith('/dashboard')) {
-      return null; 
-  }
+  if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
+  
+  // Guard: Don't render protected pages if not logged in
+  if (!user && pathname.startsWith('/dashboard')) return null;
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>
