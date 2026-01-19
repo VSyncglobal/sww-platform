@@ -1,33 +1,50 @@
-import { Controller, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Patch, Body, Param, UseGuards, Request, Get } from '@nestjs/common';
 import { GovernanceService } from './governance.service';
-import { AuthGuard } from '@nestjs/passport';
+import { JwtAuthGuard } from '../auth/jwt.strategy';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { Role } from '@prisma/client';
 
 @Controller('governance')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class GovernanceController {
   constructor(private readonly governanceService: GovernanceService) {}
 
-  // 1. Request Withdrawal (Any Member)
   @Post('withdraw')
+  @Roles(Role.MEMBER)
   requestWithdrawal(@Request() req: any, @Body() body: { amount: number; reason: string; destination: string }) {
     return this.governanceService.requestWithdrawal(req.user.userId, body.amount, body.reason, body.destination);
   }
 
-  // 2. Verify Request (Finance Officer)
-  @Post('verify/:id')
-  verifyRequest(@Request() req: any, @Param('id') requestId: string) {
-    return this.governanceService.verifyRequest(requestId, req.user.userId);
+  // Admin: List all withdrawals (Simplified for Phase 1)
+  @Get('withdrawals')
+  @Roles(Role.FINANCE_OFFICER, Role.CHAIRPERSON, Role.TREASURER, Role.SUPER_ADMIN)
+  async findAll(@Request() req: any) {
+      // In production, this should call a service method with pagination/filtering
+      // e.g. return this.governanceService.findAll(req.query);
+      return []; 
   }
 
-  // 3. Approve Request (Chairperson)
-  @Post('approve/:id')
-  approveRequest(@Request() req: any, @Param('id') requestId: string) {
-    return this.governanceService.approveRequest(requestId, req.user.userId);
+  @Patch('withdrawals/:id/verify')
+  @Roles(Role.FINANCE_OFFICER, Role.SUPER_ADMIN)
+  verify(@Param('id') id: string, @Request() req: any) {
+    return this.governanceService.verifyRequest(id, req.user.userId);
   }
 
-  // 4. Disburse Funds (Treasurer)
-  @Post('disburse/:id')
-  disburseFunds(@Request() req: any, @Param('id') requestId: string) {
-    return this.governanceService.disburseFunds(requestId, req.user.userId);
+  @Patch('withdrawals/:id/approve')
+  @Roles(Role.CHAIRPERSON, Role.SUPER_ADMIN)
+  approve(@Param('id') id: string, @Request() req: any) {
+    return this.governanceService.approveRequest(id, req.user.userId);
+  }
+
+  @Patch('withdrawals/:id/disburse')
+  @Roles(Role.TREASURER, Role.SUPER_ADMIN)
+  disburse(
+    @Param('id') id: string, 
+    @Request() req: any,
+    @Body() body: { referenceCode?: string }
+  ) {
+    // Passes the manual reference code (if provided) to the service
+    return this.governanceService.disburseFunds(id, req.user.userId, body.referenceCode);
   }
 }

@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, Wallet, Activity, LogOut, ShieldCheck, UserCircle, Settings } from 'lucide-react';
+// FIX: Added 'Banknote' to the import list
+import { LayoutDashboard, Users, Wallet, Activity, LogOut, ShieldCheck, UserCircle, Settings, Banknote } from 'lucide-react';
 import { useAdminAuth } from '@/context/AuthContext';
 
 export default function AdminSidebar() {
@@ -12,6 +13,7 @@ export default function AdminSidebar() {
   const menuItems = [
     { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Loan Governance', href: '/dashboard/loans', icon: ShieldCheck },
+    { name: 'Finance Ops', href: '/dashboard/finance', icon: Banknote },
     { name: 'Members', href: '/dashboard/members', icon: Users },
     { name: 'Savings Records', href: '/dashboard/savings', icon: Wallet },
     { name: 'System Logs', href: '/dashboard/logs', icon: Activity },
@@ -19,7 +21,7 @@ export default function AdminSidebar() {
   ];
 
   return (
-    <div className="w-64 bg-slate-900 text-white min-h-screen flex flex-col fixed left-0 top-0 border-r border-slate-800 z-50">
+    <div className="w-64 bg-slate-900 text-white min-h-screen flex flex-col fixed left-0 top-0 border-r border-slate-800 z-50 transition-all">
       {/* HEADER */}
       <div className="p-6 border-b border-slate-800 flex items-center space-x-3">
         <div className="h-8 w-8 bg-blue-600 rounded flex items-center justify-center font-bold">A</div>

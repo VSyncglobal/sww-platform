@@ -1,19 +1,84 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Role, WorkflowStatus, TransactionType, TransactionStatus, PaymentProvider, Prisma } from '@prisma/client'; // <--- UPDATED IMPORTS
+import { ConfigService } from '@nestjs/config';
+import { Role, WorkflowStatus, TransactionType, TransactionStatus, PaymentProvider, Prisma } from '@prisma/client';
 
 @Injectable()
 export class GovernanceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService 
+  ) {}
 
-  // ... (Keep existing requestWithdrawal, verifyRequest, approveRequest methods) ...
+  // -------------------------------------------------------
+  // 1. MEMBER: Request Withdrawal
+  // -------------------------------------------------------
+  async requestWithdrawal(userId: string, amount: number, reason: string, destination: string) {
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    
+    if (!wallet) {
+      throw new NotFoundException('Wallet not found. Please contact support.');
+    }
 
+    // Basic Liquidity Check
+    if (Number(wallet.savingsBalance) < amount) {
+      throw new BadRequestException('Insufficient savings balance');
+    }
+
+    return this.prisma.withdrawalRequest.create({
+      data: {
+        userId,
+        amount,
+        reason,
+        destination,
+        status: WorkflowStatus.PENDING_VERIFICATION
+      }
+    });
+  }
+
+  // -------------------------------------------------------
+  // 2. FINANCE OFFICER: Verify
+  // -------------------------------------------------------
+  async verifyRequest(requestId: string, officerId: string) {
+    return this.advanceWorkflow(
+      requestId, 
+      officerId, 
+      Role.FINANCE_OFFICER, 
+      WorkflowStatus.PENDING_VERIFICATION, 
+      WorkflowStatus.PENDING_APPROVAL
+    );
+  }
+
+  // -------------------------------------------------------
+  // 3. CHAIRPERSON: Approve
+  // -------------------------------------------------------
+  async approveRequest(requestId: string, chairId: string) {
+    return this.advanceWorkflow(
+      requestId, 
+      chairId, 
+      Role.CHAIRPERSON, 
+      WorkflowStatus.PENDING_APPROVAL, 
+      WorkflowStatus.APPROVED_PENDING_DISBURSEMENT
+    );
+  }
+
+  // -------------------------------------------------------
   // 4. TREASURER: Disburse (The Atomic Execution)
-  async disburseFunds(requestId: string, treasurerId: string) {
+  // -------------------------------------------------------
+  async disburseFunds(requestId: string, treasurerId: string, manualRef?: string) {
+    // 1. Config Check (Automation Switch from core-config)
+    const config = this.configService.get('core') || {};
+    // Default to false (Manual) for safety if config is missing
+    const isAutoDisbursement = config.features?.auto_disbursement_b2c === true;
+
+    // 2. Validate Input for Manual Mode
+    if (!isAutoDisbursement && !manualRef) {
+      throw new BadRequestException('System is in MANUAL mode. Please provide the Transaction Reference Code.');
+    }
+
     // A. Verify Treasurer Identity
     const treasurer = await this.prisma.user.findUnique({ where: { id: treasurerId } });
     
-    // Null check
     if (!treasurer) throw new ForbiddenException('Treasurer account not found');
 
     if (treasurer.role !== Role.TREASURER && treasurer.role !== Role.SUPER_ADMIN) {
@@ -46,6 +111,11 @@ export class GovernanceService {
         }
       });
 
+      // Determine Reference
+      // In Auto mode, this would eventually be updated by the Daraja Callback.
+      // For now, we generate a placeholder.
+      const finalRef = isAutoDisbursement ? `AUTOB2C-${Date.now()}` : manualRef;
+
       // 3. Create Ledger Entry (The Permanent Record)
       const transaction = await tx.transaction.create({
         data: {
@@ -53,13 +123,14 @@ export class GovernanceService {
           amount: request.amount,
           type: TransactionType.WITHDRAWAL,
           status: TransactionStatus.COMPLETED,
-          provider: PaymentProvider.MPESA, // In Phase 1, we assume M-Pesa B2C
-          referenceCode: `WD-${Date.now()}`, // Generated System Ref
+          provider: isAutoDisbursement ? PaymentProvider.SYSTEM : PaymentProvider.MPESA, 
+          referenceCode: finalRef!,
           description: request.reason || 'Approved Withdrawal',
           metadata: {
             destination: request.destination,
             authorizedBy: request.approvedBy,
-            disbursedBy: treasurerId
+            disbursedBy: treasurerId,
+            mode: isAutoDisbursement ? 'AUTO' : 'MANUAL'
           }
         }
       });
@@ -76,8 +147,7 @@ export class GovernanceService {
     });
   }
 
-  // ... (Keep advanceWorkflow helper) ...
-   // -------------------------------------------------------
+  // -------------------------------------------------------
   // HELPER: Workflow Engine
   // -------------------------------------------------------
   private async advanceWorkflow(
@@ -90,7 +160,6 @@ export class GovernanceService {
     // A. Check Approver Role
     const approver = await this.prisma.user.findUnique({ where: { id: approverId } });
     
-    // <--- FIX: Null Check Added
     if (!approver) {
       throw new ForbiddenException('Approver account not found');
     }
@@ -119,40 +188,4 @@ export class GovernanceService {
       data: updateData
     });
   }
-
-  // 1. MEMBER: Request Withdrawal
-  async requestWithdrawal(userId: string, amount: number, reason: string, destination: string) {
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-    
-    // <--- FIX: Null Check Added
-    if (!wallet) {
-      throw new NotFoundException('Wallet not found. Please contact support.');
-    }
-
-    // Basic Liquidity Check
-    if (Number(wallet.savingsBalance) < amount) {
-      throw new BadRequestException('Insufficient savings balance');
-    }
-
-    return this.prisma.withdrawalRequest.create({
-      data: {
-        userId,
-        amount,
-        reason,
-        destination,
-        status: WorkflowStatus.PENDING_VERIFICATION
-      }
-    });
-  }
-
-  // 2. FINANCE OFFICER: Verify
-  async verifyRequest(requestId: string, officerId: string) {
-    return this.advanceWorkflow(requestId, officerId, Role.FINANCE_OFFICER, WorkflowStatus.PENDING_VERIFICATION, WorkflowStatus.PENDING_APPROVAL);
-  }
-
-  // 3. CHAIRPERSON: Approve
-  async approveRequest(requestId: string, chairId: string) {
-    return this.advanceWorkflow(requestId, chairId, Role.CHAIRPERSON, WorkflowStatus.PENDING_APPROVAL, WorkflowStatus.APPROVED_PENDING_DISBURSEMENT);
-  }
-
 }
