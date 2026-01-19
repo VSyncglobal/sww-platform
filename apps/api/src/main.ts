@@ -25,7 +25,10 @@ async function bootstrap() {
 
   // 2. CORS (Allow Frontend to talk to Backend)
   app.enableCors({
-    origin: ['http://localhost:3000','http://localhost:192.168.100.24:3001', 'http://localhost:3001', 'http://localhost:3002'],
+    //origin: ['http://localhost:3000','http://localhost:192.168.100.24:3001', 'http://localhost:3001', 'http://localhost:3002'],
+        origin: ['https://sww-platform-admin.vercel.app/','https://sww-platform-web.vercel.app/', 'http://localhost:3001', 'http://localhost:3002'],
+
+    
     credentials: true,
   });
 
