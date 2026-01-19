@@ -5,7 +5,6 @@ import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Role } from '@prisma/client';
-import { CreateLoanDto } from './dto/create-loan.dto';
 
 @Controller('loans')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -15,7 +14,7 @@ export class LoansController {
     private readonly guarantorsService: GuarantorsService
   ) {}
 
-  // --- LOAN ACTIONS ---
+  // --- LOAN APPLICATION & INFO ---
 
   @Get('eligibility')
   checkEligibility(@Request() req: any) {
@@ -24,8 +23,41 @@ export class LoansController {
 
   @Post('apply')
   @Roles(Role.MEMBER, Role.SUPER_ADMIN)
-  apply(@Body() createLoanDto: CreateLoanDto) {
-    return this.loansService.apply(createLoanDto.userId, createLoanDto.amount);
+  apply(@Request() req: any, @Body() body: { amount: number, guarantorEmail: string }) {
+    // Correctly passing 3 arguments: userId, amount, email
+    return this.loansService.apply(req.user.userId, body.amount, body.guarantorEmail);
+  }
+
+  @Get()
+  findAll(@Request() req: any) {
+    return this.loansService.findAll(req.user.userId);
+  }
+
+  @Get(':id')
+  findOne(@Request() req: any, @Param('id') id: string) {
+    return this.loansService.findOne(id, req.user.userId);
+  }
+
+  // --- ADMIN / WORKFLOW ACTIONS ---
+
+  // Admin verifies the guarantor exists and has funds (Silent Check)
+  @Patch('guarantors/:id/verify')
+  @Roles(Role.FINANCE_OFFICER, Role.SUPER_ADMIN, Role.CHAIRPERSON)
+  verifyGuarantor(@Param('id') id: string, @Body() body: { notes: string }) {
+    return this.loansService.verifyGuarantor(id, body.notes);
+  }
+
+  // Finance Officer approves sending the request to the Guarantor
+  @Patch('guarantors/:id/approve-send')
+  @Roles(Role.FINANCE_OFFICER, Role.SUPER_ADMIN)
+  approveSend(@Param('id') id: string) {
+    return this.loansService.approveGuarantorRequest(id);
+  }
+
+  @Get('admin/all')
+  @Roles(Role.CHAIRPERSON, Role.FINANCE_OFFICER, Role.TREASURER, Role.SUPER_ADMIN)
+  findAllAdmin() {
+    return this.loansService.findAllAdmin();
   }
 
   @Patch(':id/verify')
@@ -58,17 +90,7 @@ export class LoansController {
     return this.loansService.repay(id, body.amount);
   }
 
-  @Get()
-  findAll(@Request() req: any) {
-    return this.loansService.findAll(req.user.userId);
-  }
-
-  @Get(':id')
-  findOne(@Request() req: any, @Param('id') id: string) {
-    return this.loansService.findOne(id, req.user.userId);
-  }
-
-  // --- GUARANTOR ACTIONS ---
+  // --- GUARANTOR ACTIONS (INCOMING REQUESTS) ---
 
   @Get('guarantors/incoming')
   @Roles(Role.MEMBER, Role.SUPER_ADMIN)
@@ -92,10 +114,5 @@ export class LoansController {
   @Roles(Role.MEMBER, Role.SUPER_ADMIN)
   rejectGuarantee(@Param('gid') gid: string, @Request() req: any) {
     return this.guarantorsService.rejectGuarantee(gid, req.user.userId);
-  }
-  @Get('admin/all')
-  @Roles(Role.CHAIRPERSON, Role.FINANCE_OFFICER, Role.TREASURER, Role.SUPER_ADMIN)
-  findAllAdmin() {
-    return this.loansService.findAllAdmin();
   }
 }

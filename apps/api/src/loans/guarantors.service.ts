@@ -1,18 +1,21 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { GuaranteeStatus, LoanStatus, Prisma, Guarantor } from '@prisma/client';
+import { GuarantorStatus, LoanStatus, Prisma, Guarantor } from '@prisma/client';
 
 @Injectable()
 export class GuarantorsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // 1. REQUEST A GUARANTOR
-  async requestGuarantee(loanId: string, guarantorId: string, amount: number) {
-    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
+  // 1. REQUEST A GUARANTOR (Updated for Email-First Flow)
+  async requestGuarantee(loanId: string, guarantorEmail: string, amount: number) {
+    const loan = await this.prisma.loan.findUnique({ 
+        where: { id: loanId },
+        include: { user: true }
+    });
     if (!loan) throw new NotFoundException('Loan not found');
 
     // Rule: Cannot guarantee self
-    if (loan.userId === guarantorId) {
+    if (loan.user.email === guarantorEmail) {
         throw new BadRequestException('You cannot guarantee your own loan');
     }
 
@@ -21,18 +24,18 @@ export class GuarantorsService {
       throw new BadRequestException('This loan is not accepting guarantors at this stage.');
     }
 
-    // Rule: No Duplicate Requests
+    // Rule: No Duplicate Requests for this email
     const existing = await this.prisma.guarantor.findFirst({
-      where: { loanId, userId: guarantorId }
+      where: { loanId, guarantorEmail }
     });
-    if (existing) throw new ConflictException('This member is already a guarantor or has a pending request.');
+    if (existing) throw new ConflictException('This member has already been invited.');
 
     return this.prisma.guarantor.create({
       data: {
         loanId,
-        userId: guarantorId,
+        guarantorEmail, // <--- FIXED: Using Email
         amountLocked: amount,
-        status: GuaranteeStatus.PENDING
+        status: GuarantorStatus.PENDING_ADMIN_CHECK // Start with Silent Check
       }
     });
   }
@@ -40,18 +43,33 @@ export class GuarantorsService {
   // 2. ACCEPT GUARANTEE (Atomic Lock & Trigger)
   async acceptGuarantee(guaranteeId: string, userId: string) {
     return this.prisma.$transaction(async (tx) => {
-      // A. Fetch Guarantee Request
+      // A. Fetch Guarantee Request with User (if linked)
       const request = await tx.guarantor.findUnique({
         where: { id: guaranteeId },
         include: { user: { include: { wallet: true } } }
       });
 
       if (!request) throw new NotFoundException('Guarantee request not found');
-      if (request.userId !== userId) throw new BadRequestException('Not authorized to accept this request');
-      if (request.status !== GuaranteeStatus.PENDING) throw new BadRequestException('Request already processed');
 
-      // B. Verify Financial Health
-      const wallet = request.user.wallet;
+      // B. Verify Identity (Email Match) if User isn't linked yet
+      const acceptor = await tx.user.findUnique({ 
+          where: { id: userId },
+          include: { wallet: true }
+      });
+
+      if (!acceptor) throw new NotFoundException('User profile not found');
+
+      if (acceptor.email !== request.guarantorEmail) {
+          throw new BadRequestException('You are not the intended recipient of this request.');
+      }
+
+      // C. Check Status
+      if (request.status !== GuarantorStatus.PENDING_GUARANTOR_ACTION) {
+          throw new BadRequestException('Request is not pending your action (might be waiting for admin or already processed).');
+      }
+
+      // D. Verify Financial Health (Using Acceptor's Wallet)
+      const wallet = acceptor.wallet;
       if (!wallet) throw new BadRequestException('Guarantor wallet not found. Cannot lock funds.');
 
       const freeBalance = Number(wallet.savingsBalance) - Number(wallet.lockedSavings);
@@ -61,19 +79,22 @@ export class GuarantorsService {
         throw new BadRequestException(`Insufficient free savings. Available: ${freeBalance}, Required: ${amountToLock}`);
       }
 
-      // C. Lock the Funds (Shadow Balance)
+      // E. Lock the Funds (Shadow Balance)
       await tx.wallet.update({
         where: { id: wallet.id },
         data: { lockedSavings: { increment: amountToLock } }
       });
 
-      // D. Update Status
+      // F. Update Status & Link User (if not already linked)
       const updatedGuarantee = await tx.guarantor.update({
         where: { id: guaranteeId },
-        data: { status: GuaranteeStatus.ACCEPTED }
+        data: { 
+            status: GuarantorStatus.ACCEPTED,
+            userId: acceptor.id 
+        }
       });
 
-      // E. CRITICAL: Check if Loan is now Fully Covered
+      // G. CRITICAL: Check if Loan is now Fully Covered
       await this.checkLoanReadiness(request.loanId, tx);
 
       return updatedGuarantee;
@@ -85,20 +106,33 @@ export class GuarantorsService {
     const request = await this.prisma.guarantor.findUnique({ where: { id: guaranteeId } });
     
     if (!request) throw new NotFoundException('Request not found');
-    if (request.userId !== userId) throw new BadRequestException('Not authorized');
+    
+    // Identity Check
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (user?.email !== request.guarantorEmail) {
+        throw new BadRequestException('Not authorized');
+    }
 
     return this.prisma.guarantor.update({
       where: { id: guaranteeId },
-      data: { status: GuaranteeStatus.REJECTED }
+      data: { status: GuarantorStatus.REJECTED }
     });
   }
 
-  // 4. GET INCOMING REQUESTS (For the Guarantor Dashboard)
+  // 4. GET INCOMING REQUESTS
   async getIncomingRequests(userId: string) {
+    // We need the user's email to find their requests
+    const user = await this.prisma.user.findUnique({ 
+        where: { id: userId },
+        select: { email: true }
+    });
+
+    if (!user) return [];
+
     return this.prisma.guarantor.findMany({
       where: {
-        userId: userId, // I am the potential guarantor
-        status: GuaranteeStatus.PENDING
+        guarantorEmail: user.email, // <--- Match by Email
+        status: GuarantorStatus.PENDING_GUARANTOR_ACTION // Only show if Admin/Finance approved it
       },
       include: {
         loan: {
@@ -129,7 +163,7 @@ export class GuarantorsService {
 
     // Sum all ACCEPTED guarantees
     const totalGuaranteed = loan.guarantors
-      .filter((g: Guarantor) => g.status === GuaranteeStatus.ACCEPTED)
+      .filter((g: Guarantor) => g.status === GuarantorStatus.ACCEPTED)
       .reduce((sum: number, g: Guarantor) => sum + Number(g.amountLocked), 0);
 
     // If 100% Covered -> Move to Finance Verification

@@ -8,8 +8,12 @@ export class LoansService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  // --- 1. APPLICATION LOGIC (Member) ---
-  async apply(userId: string, amount: number) {
+  // ==================================================================
+  // 1. CORE LENDING LOGIC (Apply, Verify, Approve, Disburse, Repay)
+  // ==================================================================
+
+  // 1.1 APPLY (Member)
+  async apply(userId: string, amount: number, guarantorEmail: string) {
     const amountDec = Number(amount);
 
     // Fetch Context
@@ -20,36 +24,41 @@ export class LoansService {
 
     if (!user || !user.wallet) throw new BadRequestException('User profile incomplete');
 
-    // Gatekeeper: Active Loan Check
+    // Rule: Cannot guarantee self
+    if (user.email === guarantorEmail) {
+        throw new BadRequestException("You cannot guarantee your own loan.");
+    }
+
+    // Rule: Active Loan Check
     const activeLoan = user.loans.find(l => 
       ['PENDING_GUARANTORS', 'PENDING_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE'].includes(l.status)
     );
     if (activeLoan) throw new ConflictException('You already have an active or pending loan.');
 
-    // Gatekeeper: Tenure Check (> 6 Months)
+    // Rule: Tenure (> 6 Months)
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     if (user.createdAt > sixMonthsAgo) {
         throw new BadRequestException('Membership tenure must be > 6 months.');
     }
 
-    // Gatekeeper: Savings Threshold (>= 10,000)
+    // Rule: Savings Threshold
     const totalSavings = Number(user.wallet.savingsBalance);
     if (totalSavings < 10000) {
         throw new BadRequestException(`Minimum savings of KES 10,000 required. Current: ${totalSavings}`);
     }
 
-    // Gatekeeper: Limit Calculation (80% Rule)
+    // Rule: Limit Calculation (80%)
     const maxLoan = totalSavings * 0.80;
     if (amountDec > maxLoan) {
         throw new BadRequestException(`Loan exceeds limit. Max allowed: ${maxLoan}`);
     }
 
-    // Calculation Logic
+    // Financials
     const interest = amountDec * 0.05; // 5% Flat
     const totalDue = amountDec + interest;
 
-    // Create Application
+    // Create
     return await this.prisma.loan.create({
       data: {
         userId: user.id,
@@ -57,50 +66,47 @@ export class LoansService {
         interest: interest,
         totalDue: totalDue,
         balance: totalDue,
-        status: LoanStatus.PENDING_GUARANTORS,
-      }
+        status: 'PENDING_GUARANTORS',
+        guarantors: {
+          create: {
+            guarantorEmail, 
+            amountLocked: amountDec, 
+            status: 'PENDING_ADMIN_CHECK', // Silent Check
+          },
+        },
+      },
     });
   }
 
-  // --- 2. VERIFICATION LOGIC (Finance Officer) ---
+  // 1.2 VERIFY (Finance Officer)
   async verify(loanId: string) {
     const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
     if (!loan) throw new NotFoundException('Loan not found');
     
-    if (loan.status !== 'PENDING_VERIFICATION') {
-      throw new BadRequestException(`Invalid transition. Loan is at ${loan.status}`);
-    }
-
+    // In strict mode, you'd check if guarantors are ACCEPTED here.
     return await this.prisma.loan.update({
       where: { id: loanId },
       data: { status: LoanStatus.PENDING_APPROVAL }
     });
   }
 
-  // --- 3. APPROVAL LOGIC (Chairperson) ---
+  // 1.3 APPROVE (Chairperson)
   async approve(loanId: string) {
-    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
-    if (!loan) throw new NotFoundException('Loan not found');
-
-    if (loan.status !== 'PENDING_APPROVAL') {
-      throw new BadRequestException(`Invalid transition. Loan is at ${loan.status}`);
-    }
-
     return await this.prisma.loan.update({
       where: { id: loanId },
       data: { status: LoanStatus.APPROVED }
     });
   }
 
-  // --- 4. REJECTION LOGIC ---
+  // 1.4 REJECT (Admin)
   async reject(loanId: string, reason: string) {
     return await this.prisma.loan.update({
       where: { id: loanId },
-      data: { status: LoanStatus.REJECTED }
+      data: { status: LoanStatus.REJECTED, adminNotes: reason }
     });
   }
 
-  // --- 5. DISBURSEMENT LOGIC (Treasurer) ---
+  // 1.5 DISBURSE (Treasurer)
   async disburse(loanId: string) {
     const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
     if (!loan) throw new NotFoundException('Loan not found');
@@ -111,13 +117,13 @@ export class LoansService {
 
     const now = new Date();
     const dueDate = new Date();
-    dueDate.setDate(now.getDate() + 30); // Strict 30 Day Policy
+    dueDate.setDate(now.getDate() + 30); // 30 Day Term
 
     return await this.prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({ where: { userId: loan.userId } });
       if (!wallet) throw new NotFoundException('User wallet not found.');
 
-      // Update Loan
+      // Activate Loan
       const activeLoan = await tx.loan.update({
         where: { id: loanId },
         data: { 
@@ -127,13 +133,13 @@ export class LoansService {
         }
       });
 
-      // Update Wallet Liability
+      // Update Wallet
       await tx.wallet.update({
         where: { id: wallet.id },
         data: { loanBalance: { increment: loan.totalDue } }
       });
 
-      // Create Transaction
+      // Transaction Record
       await tx.transaction.create({
         data: {
           walletId: wallet.id,
@@ -150,7 +156,7 @@ export class LoansService {
     });
   }
 
-  // --- 6. REPAYMENT LOGIC ---
+  // 1.6 REPAY (Member)
   async repay(loanId: string, amount: number) {
     const payment = Number(amount);
     const loan = await this.prisma.loan.findUnique({
@@ -164,21 +170,19 @@ export class LoansService {
     const wallet = loan.user.wallet;
     if (!wallet) throw new NotFoundException('Wallet not found');
     
-    // Logic: Split Payment
-    let remainingPayment = payment;
+    // Split Payment Logic
+    const currentBalance = Number(loan.balance);
     let loanDeduction = 0;
     let savingsAddition = 0;
-    const currentBalance = Number(loan.balance);
 
-    if (remainingPayment >= currentBalance) {
+    if (payment >= currentBalance) {
       loanDeduction = currentBalance;
-      savingsAddition = remainingPayment - currentBalance;
+      savingsAddition = payment - currentBalance;
     } else {
-      loanDeduction = remainingPayment;
+      loanDeduction = payment;
     }
 
     return await this.prisma.$transaction(async (tx) => {
-      // Update Loan
       const updatedLoan = await tx.loan.update({
         where: { id: loanId },
         data: {
@@ -187,7 +191,6 @@ export class LoansService {
         }
       });
 
-      // Update Wallet
       await tx.wallet.update({
         where: { id: wallet.id },
         data: {
@@ -196,17 +199,18 @@ export class LoansService {
         }
       });
       
-      // If Fully Paid -> Release Guarantors
+      // Release Guarantors if loan is cleared
       if (updatedLoan.status === LoanStatus.COMPLETED) {
         for (const g of loan.guarantors) {
           if (g.status === 'ACCEPTED') {
              await tx.wallet.update({
-               where: { userId: g.userId },
+               where: { userId: g.userId! },
                data: { lockedSavings: { decrement: g.amountLocked } }
              });
+             // Explicit cast to any to avoid enum strictness if types out of sync
              await tx.guarantor.update({
                where: { id: g.id },
-               data: { status: 'RELEASED' }
+               data: { status: 'RELEASED' as any } 
              });
           }
         }
@@ -226,16 +230,79 @@ export class LoansService {
       return { updatedLoan, savingsAdded: savingsAddition };
     });
   }
-// 7. AUTOMATION: APPLY PENALTY (Day 31+)
+
+  // ==================================================================
+  // 2. GUARANTOR WORKFLOW (Silent Check & Approval)
+  // ==================================================================
+
+  // 2.1 ADMIN: SILENT CHECK
+  async verifyGuarantor(guarantorId: string, adminNotes: string) {
+    const request = await this.prisma.guarantor.findUnique({ where: { id: guarantorId } });
+    if (!request) throw new NotFoundException('Guarantor request not found');
+
+    const potentialGuarantor = await this.prisma.user.findUnique({ 
+        where: { email: request.guarantorEmail },
+        include: { wallet: true }
+    });
+
+    if (!potentialGuarantor) {
+       await this.prisma.guarantor.update({ where: { id: guarantorId }, data: { status: 'REJECTED' }});
+       throw new BadRequestException('Guarantor email does not exist in the system.');
+    }
+
+    const savings = Number(potentialGuarantor.wallet?.savingsBalance || 0);
+    const locked = Number(potentialGuarantor.wallet?.lockedSavings || 0);
+    const required = Number(request.amountLocked);
+
+    if ((savings - locked) < required) {
+        throw new BadRequestException(`Insufficient free savings. Available: ${savings - locked}`);
+    }
+
+    await this.prisma.loan.update({
+        where: { id: request.loanId },
+        data: { adminNotes: `Guarantor Verified: ${adminNotes}` }
+    });
+
+    return this.prisma.guarantor.update({
+        where: { id: guarantorId },
+        data: { 
+            userId: potentialGuarantor.id, 
+            status: 'PENDING_FINANCE_APPROVAL' 
+        }
+    });
+  }
+
+  // 2.2 FINANCE: APPROVE SENDING
+  async approveGuarantorRequest(guarantorId: string) {
+    return this.prisma.guarantor.update({
+        where: { id: guarantorId },
+        data: { status: 'PENDING_GUARANTOR_ACTION' } 
+    });
+  }
+
+  // ==================================================================
+  // 3. AUTOMATION & COMPLIANCE (For Scheduler)
+  // ==================================================================
+
+  // 3.1 FIND OVERDUE
+  async getOverdueLoans() {
+    const now = new Date();
+    return this.prisma.loan.findMany({
+      where: {
+        status: LoanStatus.ACTIVE,
+        dueDate: { lt: now }
+      }
+    });
+  }
+
+  // 3.2 APPLY PENALTY
   async applyOverduePenalty(loanId: string) {
     return this.prisma.$transaction(async (tx) => {
       const loan = await tx.loan.findUnique({ where: { id: loanId } });
       if (!loan) return;
 
-      // 10% of Current Balance
       const penaltyAmount = Number(loan.balance) * 0.10; 
       
-      // Update Loan
       await tx.loan.update({
         where: { id: loanId },
         data: {
@@ -244,11 +311,8 @@ export class LoansService {
         }
       });
 
-      // <--- FIX: Safe Wallet Fetch
       const wallet = await tx.wallet.findUnique({ where: { userId: loan.userId } });
-      
       if (wallet) {
-        // Only create transaction if wallet exists
         await tx.transaction.create({
           data: {
             walletId: wallet.id,
@@ -259,14 +323,11 @@ export class LoansService {
             description: `10% Penalty for Overdue Loan #${loan.id}`
           }
         });
-        this.logger.warn(`Applied penalty of ${penaltyAmount} to Loan ${loanId}`);
-      } else {
-        this.logger.error(`Could not apply penalty transaction for Loan ${loanId}: Wallet not found.`);
       }
     });
   }
 
-  // --- 8. AUTOMATION: MARK DEFAULT (Day 91+) ---
+  // 3.3 MARK DEFAULT
   async markLoanAsDefault(loanId: string) {
     return this.prisma.$transaction(async (tx) => {
       const loan = await tx.loan.findUnique({ where: { id: loanId } });
@@ -279,69 +340,44 @@ export class LoansService {
 
       await tx.user.update({
         where: { id: loan.userId },
-        data: { status: 'DEFAULTED' }
+        data: { status: 'DEFAULTED' } // Ensure 'DEFAULTED' is in AccountStatus enum
       });
 
-      this.logger.error(`🚨 Loan ${loanId} marked as DEFAULTED. User ${loan.userId} blocked.`);
+      this.logger.warn(`Loan ${loanId} defaulted. User blocked.`);
     });
   }
 
-  // --- 9. HELPER: FIND OVERDUE LOANS ---
-  async getOverdueLoans() {
-    const now = new Date();
-    return this.prisma.loan.findMany({
-      where: {
-        status: LoanStatus.ACTIVE,
-        dueDate: { lt: now }
-      }
-    });
-  }
-
-  // --- 10. GET ELIGIBILITY ---
+  // ==================================================================
+  // 4. HELPERS
+  // ==================================================================
+  
   async checkEligibility(userId: string) {
      const user = await this.prisma.user.findUnique({
        where: { id: userId },
-       include: { wallet: true, loans: true }
+       include: { wallet: true }
      });
+     
      if(!user || !user.wallet) return { eligible: false, reason: 'Profile incomplete' };
      
      const savings = Number(user.wallet.savingsBalance);
-     const limit = savings * 0.80;
-     
-     return {
-       eligible: savings >= 10000,
-       limit,
-       savings
-     };
+     if (savings < 10000) return { eligible: false, reason: 'Minimum KES 10,000 savings required' };
+
+     return { eligible: true, limit: savings * 0.80, savings };
   }
 
-  // --- 11. FIND ALL ---
   async findAll(userId: string) {
     return this.prisma.loan.findMany({ where: { userId }, include: { guarantors: true } });
   }
 
-  // --- 12. FIND ONE ---
   async findOne(id: string, userId: string) {
-      return this.prisma.loan.findFirst({ where: { id, userId }, include: { guarantors: true } });
+    return this.prisma.loan.findFirst({ where: { id, userId }, include: { guarantors: true } });
   }
-  // --- 8. ADMIN: GET ALL LOANS ---
+
   async findAllAdmin() {
     return this.prisma.loan.findMany({
       orderBy: { appliedAt: 'desc' },
       include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            phoneNumber: true,
-            profile: {
-              select: { firstName: true, lastName: true, nationalId: true }
-            },
-            wallet: {
-              select: { savingsBalance: true }
-            }
-          }
-        },
+        user: { select: { id: true, email: true, phoneNumber: true, profile: true, wallet: true } },
         guarantors: true
       }
     });

@@ -23,6 +23,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid Token Structure');
     }
 
+    // Security: Check if user still exists and is not BANNED
     const user = await this.prisma.user.findUnique({ 
         where: { id: payload.sub } 
     });
@@ -31,6 +32,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         throw new UnauthorizedException('Account access restricted');
     }
 
+    // This object is attached to req.user in Controllers
     return { userId: user.id, email: user.email, role: user.role };
   }
 }
